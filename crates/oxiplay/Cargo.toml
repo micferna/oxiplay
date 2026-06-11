@@ -11,7 +11,7 @@ build = "build.rs"
 
 [dependencies]
 # Décodage : bindings sûrs au-dessus de FFmpeg (demux, decode, scale, resample)
-ffmpeg-next = "7"
+ffmpeg-next = "8"
 # Interface graphique déclarative, rendu GPU (femtovg/Skia), multiplateforme
 slint = "1.8"
 # Sortie audio bas niveau multiplateforme (ALSA / WASAPI / CoreAudio)
