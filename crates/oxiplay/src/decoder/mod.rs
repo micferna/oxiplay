@@ -28,7 +28,7 @@ pub use demux::{run_demux, DemuxConfig};
 pub use video::run_video_decoder;
 
 use crate::video::VideoFrameData;
-use ffmpeg_next as ffmpeg;
+use ffmpeg_the_third as ffmpeg;
 use std::sync::Arc;
 
 /// Commandes acceptées par le thread de demuxage.

@@ -17,9 +17,9 @@ use std::rc::Rc;
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    ffmpeg_next::init()?;
+    ffmpeg_the_third::init()?;
     // Réduit la verbosité des bibliothèques FFmpeg elles-mêmes.
-    ffmpeg_next::util::log::set_level(ffmpeg_next::util::log::Level::Error);
+    ffmpeg_the_third::util::log::set_level(ffmpeg_the_third::util::log::Level::Error);
 
     let main_window = MainWindow::new()?;
     let app = Rc::new(RefCell::new(App::new(main_window.as_weak())));

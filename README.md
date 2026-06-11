@@ -5,9 +5,9 @@
 [![Rust](https://img.shields.io/badge/rust-stable%20%E2%89%A5%201.80-orange.svg)](https://www.rust-lang.org)
 
 Lecteur multimédia de bureau multiplateforme (Linux, Windows, macOS) écrit
-entièrement en **Rust**, bâti sur **FFmpeg** (décodage), **Slint** (interface,
-rendu GPU) et **cpal** (audio). Objectif : un concurrent open source de VLC,
-propre, modulaire et performant.
+entièrement en **Rust**, bâti sur **FFmpeg 7/8** (décodage, via
+`ffmpeg-the-third`), **Slint** (interface, rendu GPU) et **cpal** (audio).
+Objectif : un concurrent open source de VLC, propre, modulaire et performant.
 
 ## Fonctionnalités
 

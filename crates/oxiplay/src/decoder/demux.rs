@@ -7,7 +7,7 @@ use crate::audio::AudioQueue;
 use crate::player::state::{SharedState, TrackInfo};
 use crate::subtitles::{embedded_ass_to_text, SubtitleCue, SubtitleTrack};
 use crossbeam_channel::{Receiver, SendTimeoutError, Sender};
-use ffmpeg_next as ffmpeg;
+use ffmpeg_the_third as ffmpeg;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,10 +67,8 @@ fn demux_loop(
 ) -> anyhow::Result<()> {
     let kind = crate::streaming::classify(&config.source);
     let options = crate::streaming::demux_options(kind);
-    let mut ictx = ffmpeg::format::input_with_dictionary(
-        &std::path::Path::new(&config.source).to_path_buf(),
-        options,
-    )?;
+    let mut ictx =
+        ffmpeg::format::input_with_dictionary(std::path::Path::new(&config.source), options)?;
 
     let duration_us = if ictx.duration() > 0 {
         // `Input::duration` est en unités AV_TIME_BASE (µs).
@@ -134,11 +132,15 @@ fn demux_loop(
             continue;
         }
 
-        // Lit le paquet suivant.
-        let next = ictx.packets().next();
-        match next {
-            Some((stream, packet)) => {
+        // Lit le paquet suivant. L'itérateur est faillible : une erreur de
+        // lecture transitoire (réseau) est journalisée et on réessaie ; le
+        // timeout d'I/O évite tout blocage indéfini.
+        match ictx.packets().next() {
+            Some(Ok((stream, packet))) => {
                 route_packet(&mut st, stream, packet)?;
+            }
+            Some(Err(e)) => {
+                log::debug!("lecture de paquet échouée : {e}");
             }
             None => {
                 eof = true;
@@ -223,10 +225,27 @@ fn send_reconfigure(
         .stream(stream_index)
         .ok_or_else(|| anyhow::anyhow!("flux {stream_index} introuvable"))?;
     tx.send(PacketMsg::Reconfigure {
-        parameters: stream.parameters(),
+        parameters: owned_parameters(&stream.parameters()),
         time_base: stream.time_base(),
     })
     .map_err(|_| anyhow::anyhow!("décodeur arrêté"))
+}
+
+/// Copie en profondeur des paramètres de codec empruntés vers une valeur
+/// possédée, transmissible à un thread de décodage.
+///
+/// `stream.parameters()` renvoie une vue empruntée (`ParametersRef`) liée au
+/// conteneur ; le pipeline a besoin d'une copie indépendante.
+fn owned_parameters(
+    params: &ffmpeg::codec::parameters::ParametersRef,
+) -> ffmpeg::codec::Parameters {
+    let mut owned = ffmpeg::codec::Parameters::new();
+    // SAFETY : les deux pointeurs proviennent d'allocations FFmpeg valides et
+    // non nulles ; `avcodec_parameters_copy` réalise une copie profonde.
+    unsafe {
+        ffmpeg::ffi::avcodec_parameters_copy(owned.as_mut_ptr(), params.as_ptr());
+    }
+    owned
 }
 
 fn handle_command(
@@ -286,12 +305,14 @@ fn perform_seek(
         q.clear();
     }
 
-    // `seek` prend des unités AV_TIME_BASE (µs) ; la borne supérieure
-    // `..target` demande la keyframe précédant la cible.
-    if let Err(e) = ictx.seek(target, ..target) {
+    // `seek` prend des unités AV_TIME_BASE (µs). La plage `..=target`
+    // autorise la keyframe située à la cible ou juste avant (le fork
+    // ramène une borne exclue à `target-1`, ce qui peut vider la plage).
+    if let Err(e) = ictx.seek(target, ..=target) {
         log::warn!("seek vers {target} µs impossible : {e}");
         return Ok(());
     }
+    log::debug!("seek effectué vers {target} µs");
 
     st.shared.demux_eof.store(false, Ordering::Relaxed);
     st.shared.video_done.store(false, Ordering::Relaxed);

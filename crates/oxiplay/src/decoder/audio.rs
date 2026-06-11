@@ -11,18 +11,24 @@ use super::{ts_to_us, PacketMsg};
 use crate::audio::AudioQueue;
 use crate::player::state::SharedState;
 use crossbeam_channel::{Receiver, RecvTimeoutError};
-use ffmpeg_next as ffmpeg;
-use ffmpeg_next::software::resampling;
-use ffmpeg_next::util::format::sample::{Sample, Type as SampleType};
+use ffmpeg_the_third as ffmpeg;
+use ffmpeg_the_third::software::resampling;
+use ffmpeg_the_third::util::format::sample::{Sample, Type as SampleType};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
 /// État du resampler, recréé quand le format d'entrée ou la vitesse change.
+///
+/// On mémorise le **nombre de canaux** plutôt que la disposition complète :
+/// la nouvelle API FFmpeg (`AVChannelLayout`) emprunte la trame, ce qui se
+/// prête mal à un cache durable ; et en pratique deux dispositions de même
+/// cardinalité produisent la même sortie stéréo — au pire on reconstruit le
+/// resampler une fois de trop, sans incidence.
 struct ResamplerCache {
     resampler: resampling::Context,
     in_format: ffmpeg::format::Sample,
-    in_layout: ffmpeg::ChannelLayout,
+    in_channels: u32,
     in_rate: u32,
     speed_milli: u32,
 }
@@ -167,25 +173,23 @@ fn resample_and_push(
 
     let speed_milli = shared.speed_milli.load(Ordering::Relaxed).max(250);
     let in_format = decoded.format();
-    let mut in_layout = decoded.channel_layout();
-    if in_layout.is_empty() {
-        in_layout = ffmpeg::ChannelLayout::default(decoded.channels() as i32);
-    }
+    let in_channels = decoded.ch_layout().channels();
+    anyhow::ensure!(in_channels > 0, "disposition de canaux audio inconnue");
     let in_rate = decoded.rate();
 
     // Taux de sortie ajusté pour la vitesse de lecture.
     let needs_rebuild = !matches!(
         cache,
         Some(c) if c.in_format == in_format
-            && c.in_layout == in_layout
+            && c.in_channels == in_channels
             && c.in_rate == in_rate
             && c.speed_milli == speed_milli
     );
     if needs_rebuild {
         let out_rate = (device_rate as u64 * 1000 / speed_milli as u64).max(8000) as u32;
-        let resampler = resampling::Context::get(
+        let resampler = resampling::Context::get2(
             in_format,
-            in_layout,
+            decoded.ch_layout(),
             in_rate,
             ffmpeg::format::Sample::F32(SampleType::Packed),
             ffmpeg::ChannelLayout::STEREO,
@@ -194,7 +198,7 @@ fn resample_and_push(
         *cache = Some(ResamplerCache {
             resampler,
             in_format,
-            in_layout,
+            in_channels,
             in_rate,
             speed_milli,
         });

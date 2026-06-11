@@ -1,8 +1,10 @@
 # Compilation
 
-OxiPlay nécessite : **Rust stable ≥ 1.80**, **FFmpeg ≥ 6 (testé avec 7.1)**
-avec ses en-têtes de développement, **clang/libclang** (pour bindgen), et
-sous Linux **ALSA** (en-têtes).
+OxiPlay nécessite : **Rust stable ≥ 1.80**, **FFmpeg 6, 7 ou 8** avec ses
+en-têtes de développement, **clang/libclang** (pour bindgen), et sous Linux
+**ALSA** (en-têtes). Le binding `ffmpeg-the-third` détecte la version de
+FFmpeg à la compilation : le même code compile contre la 7.x des
+distributions et la 8.x récente (la CI teste les deux).
 
 ```bash
 cargo build --release        # binaire : target/release/oxiplay
@@ -49,9 +51,11 @@ Le fichier `.cargo/config.toml` du dépôt ajoute déjà ce répertoire à
    et les *Build Tools for Visual Studio* (C++).
 2. Installer LLVM (pour libclang) : `winget install LLVM.LLVM`,
    puis `set LIBCLANG_PATH=C:\Program Files\LLVM\bin`.
-3. Fournir FFmpeg **shared** (en-têtes + import libs + DLL), au choix :
-   - Builds officiels gyan.dev : télécharger `ffmpeg-release-full-shared.7z`,
-     extraire, puis `set FFMPEG_DIR=C:\chemin\vers\ffmpeg` ;
+3. Fournir FFmpeg **shared** 7.x ou 8.x (en-têtes + import libs + DLL) :
+   - Builds [BtbN](https://github.com/BtbN/FFmpeg-Builds/releases) (recommandé,
+     rapide) : `ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip`, extraire, puis
+     `set FFMPEG_DIR=C:\chemin\ffmpeg-n8.1-...` ;
+   - ou gyan.dev (`ffmpeg-release-full-shared.7z`) ;
    - ou vcpkg : `vcpkg install ffmpeg[core,avcodec,avformat,swscale,swresample,avfilter,avdevice]:x64-windows`
      puis `set FFMPEG_DIR=%VCPKG_ROOT%\installed\x64-windows`.
 4. `cargo build --release`, puis copier les DLL `av*.dll`, `sw*.dll`

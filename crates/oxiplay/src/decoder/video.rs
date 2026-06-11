@@ -7,8 +7,8 @@ use super::{ts_to_us, PacketMsg, VideoFrameMsg};
 use crate::player::state::SharedState;
 use crate::video::VideoFrameData;
 use crossbeam_channel::{Receiver, RecvTimeoutError, SendTimeoutError, Sender};
-use ffmpeg_next as ffmpeg;
-use ffmpeg_next::software::scaling;
+use ffmpeg_the_third as ffmpeg;
+use ffmpeg_the_third::software::scaling;
 use std::sync::Arc;
 use std::time::Duration;
 

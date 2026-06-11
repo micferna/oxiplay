@@ -45,31 +45,37 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # macOS et Windows testent FFmpeg 8.x (Homebrew/BtbN), tandis que Linux
+  # tourne sur la 7.1 de Debian : la matrice valide ainsi la compatibilité
+  # FFmpeg 7 ET 8 offerte par ffmpeg-the-third.
   test-macos:
-    name: Tests (macOS)
+    name: Tests (macOS, FFmpeg 8)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - name: Dépendances système
         run: |
           brew install ffmpeg pkg-config
-          # ffmpeg-sys-next lit FFMPEG_DIR en priorité et l'utilise
-          # directement (include/ + lib/), sans dépendre de pkg-config —
-          # fiable face au keg Homebrew hors des chemins par défaut.
           echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
   build-windows:
-    name: Build (Windows)
+    name: Build (Windows, FFmpeg 8)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: FFmpeg (vcpkg)
+      - name: FFmpeg 8.1 (build partagé BtbN)
+        shell: pwsh
         run: |
-          vcpkg install ffmpeg[avcodec,avformat,swscale,swresample,avfilter,avdevice]:x64-windows
-          echo "FFMPEG_DIR=C:\vcpkg\installed\x64-windows" >> $env:GITHUB_ENV
+          # Build partagé pré-compilé, bien plus rapide et fiable que vcpkg.
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath C:\ffmpeg
+          $dir = (Get-ChildItem C:\ffmpeg -Directory)[0].FullName
+          echo "FFMPEG_DIR=$dir" >> $env:GITHUB_ENV
+          echo "$dir\bin" >> $env:GITHUB_PATH
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p oxiplay

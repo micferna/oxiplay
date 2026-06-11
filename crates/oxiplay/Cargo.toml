@@ -10,8 +10,11 @@ rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]
-# Décodage : bindings sûrs au-dessus de FFmpeg (demux, decode, scale, resample)
-ffmpeg-next = "7"
+# Décodage : bindings sûrs au-dessus de FFmpeg (demux, decode, scale,
+# resample). Fork « the-third » de ffmpeg-next, activement maintenu et
+# compatible FFmpeg 5 à 8 (détection de version à la compilation) : le même
+# build couvre la 7.x des distributions et la 8.x récente.
+ffmpeg-the-third = "5"
 # Interface graphique déclarative, rendu GPU (femtovg/Skia), multiplateforme
 slint = "1.8"
 # Sortie audio bas niveau multiplateforme (ALSA / WASAPI / CoreAudio)

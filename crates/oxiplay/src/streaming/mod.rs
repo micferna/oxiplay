@@ -5,7 +5,7 @@
 //! les entrées utilisateur et de fournir les options de demuxage adaptées
 //! à chaque protocole (transport RTSP, timeouts, reconnexion…).
 
-use ffmpeg_next::Dictionary;
+use ffmpeg_the_third::Dictionary;
 
 /// Type de source réseau reconnu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,7 +66,7 @@ pub fn classify(input: &str) -> StreamKind {
 /// `file` de toute source distante (les fichiers locaux passent par
 /// [`StreamKind::Local`], sans restriction, puisque l'utilisateur ouvre ses
 /// propres fichiers). Voir SECURITY.md.
-pub fn demux_options(kind: StreamKind) -> Dictionary<'static> {
+pub fn demux_options(kind: StreamKind) -> Dictionary {
     let mut opts = Dictionary::new();
     match kind {
         StreamKind::Local => {}

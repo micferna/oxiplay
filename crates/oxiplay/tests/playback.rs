@@ -63,7 +63,7 @@ fn open_decode_seek_and_stop() {
         eprintln!("ffmpeg introuvable : test d'intégration ignoré");
         return;
     };
-    ffmpeg_next::init().unwrap();
+    ffmpeg_the_third::init().unwrap();
 
     let frames = Arc::new(AtomicUsize::new(0));
     let sink_frames = Arc::clone(&frames);
@@ -141,7 +141,7 @@ fn playback_reaches_end() {
         eprintln!("ffmpeg introuvable : test d'intégration ignoré");
         return;
     };
-    ffmpeg_next::init().unwrap();
+    ffmpeg_the_third::init().unwrap();
 
     let engine = PlayerEngine::open(
         &media.to_string_lossy(),
