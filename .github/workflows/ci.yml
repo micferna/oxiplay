@@ -51,7 +51,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Dépendances système
-        run: brew install ffmpeg pkg-config
+        run: |
+          brew install ffmpeg pkg-config
+          # Homebrew installe hors des chemins par défaut (/opt/homebrew sur
+          # Apple Silicon) : on guide pkg-config ET bindgen (en-têtes FFmpeg).
+          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix ffmpeg)/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "BINDGEN_EXTRA_CLANG_ARGS=-I$(brew --prefix)/include" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
