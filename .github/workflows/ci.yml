@@ -13,7 +13,7 @@ jobs:
     name: Format & Clippy (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Dépendances système
         run: |
           sudo apt-get update
@@ -31,7 +31,7 @@ jobs:
     name: Tests (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Dépendances système
         run: |
           sudo apt-get update
@@ -52,7 +52,7 @@ jobs:
     name: Tests (macOS, FFmpeg 8)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Dépendances système
         run: |
           brew install ffmpeg pkg-config
@@ -65,7 +65,7 @@ jobs:
     name: Build (Windows, FFmpeg 8)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: FFmpeg 8.1 (build partagé BtbN)
         shell: pwsh
         run: |
@@ -88,7 +88,7 @@ jobs:
       checks: write
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
