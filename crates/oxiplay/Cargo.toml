@@ -22,7 +22,7 @@ cpal = "0.15"
 # Canaux MPMC performants pour le pipeline de décodage
 crossbeam-channel = "0.5"
 # Boîtes de dialogue natives (ouverture de fichiers)
-rfd = "0.15"
+rfd = "0.17"
 # Encodage PNG pour les captures d'écran
 png = "0.17"
 # Persistance des paramètres / playlists / historique
