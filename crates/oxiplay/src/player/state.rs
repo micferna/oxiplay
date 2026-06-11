@@ -1,0 +1,164 @@
+//! État partagé entre le moteur de lecture, les threads de décodage,
+//! la sortie audio et l'interface graphique.
+//!
+//! Tout est conçu pour des lectures très fréquentes et sans blocage :
+//! atomiques pour les scalaires, mutex courts pour le reste.
+
+use crate::player::clock::PlaybackClock;
+use crate::subtitles::SubtitleTrack;
+use crate::video::VideoFrameData;
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
+/// Description d'une piste (audio ou sous-titres) du média ouvert.
+#[derive(Debug, Clone)]
+pub struct TrackInfo {
+    /// Index du flux dans le conteneur.
+    pub stream_index: usize,
+    /// Langue (tag `language` des métadonnées), si présente.
+    pub language: Option<String>,
+    /// Titre de la piste, si présent.
+    pub title: Option<String>,
+    /// Nom du codec (ex. `aac`, `subrip`).
+    pub codec: String,
+}
+
+impl TrackInfo {
+    /// Libellé lisible pour les menus de l'interface.
+    pub fn label(&self, position: usize) -> String {
+        let mut label = format!("Piste {}", position + 1);
+        if let Some(lang) = &self.language {
+            label.push_str(&format!(" [{lang}]"));
+        }
+        if let Some(title) = &self.title {
+            label.push_str(&format!(" — {title}"));
+        }
+        label.push_str(&format!(" ({})", self.codec));
+        label
+    }
+}
+
+/// État global d'une session de lecture, partagé par `Arc`.
+pub struct SharedState {
+    /// Horloge maîtresse (position de lecture).
+    pub clock: PlaybackClock,
+    /// Durée totale du média (µs), 0 si inconnue (flux en direct).
+    pub duration_us: AtomicI64,
+    /// Vitesse demandée, en millièmes (1000 = 1.0x) — lue par l'audio.
+    pub speed_milli: AtomicU32,
+    /// Volume en millièmes (0..=1250).
+    pub volume_milli: AtomicU32,
+    pub muted: AtomicBool,
+    /// Demande d'arrêt de tous les threads de la session.
+    pub stop: AtomicBool,
+    /// Génération de seek : chaque seek l'incrémente ; les paquets/images
+    /// d'une génération périmée sont jetés sans être présentés.
+    pub generation: AtomicU64,
+    /// Fin de demuxage atteinte.
+    pub demux_eof: AtomicBool,
+    /// Plus aucune image vidéo à présenter (après EOF).
+    pub video_done: AtomicBool,
+    /// Plus aucun échantillon audio à jouer (après EOF).
+    pub audio_done: AtomicBool,
+    /// Dernière image présentée (pour les captures d'écran).
+    pub last_frame: Mutex<Option<Arc<VideoFrameData>>>,
+    /// Décalage utilisateur des sous-titres (µs, positif = retarder).
+    pub subtitle_delay_us: AtomicI64,
+    /// Piste de sous-titres externe chargée manuellement (prioritaire).
+    pub external_subtitles: Mutex<Option<SubtitleTrack>>,
+    /// Répliques décodées depuis la piste embarquée sélectionnée.
+    pub embedded_subtitles: Mutex<SubtitleTrack>,
+    /// Pistes audio disponibles.
+    pub audio_tracks: Mutex<Vec<TrackInfo>>,
+    /// Pistes de sous-titres embarquées disponibles.
+    pub subtitle_tracks: Mutex<Vec<TrackInfo>>,
+    /// Erreur fatale remontée par un thread (affichée par l'UI).
+    pub error: Mutex<Option<String>>,
+    /// Présence d'un flux audio/vidéo dans le média.
+    pub has_audio: AtomicBool,
+    pub has_video: AtomicBool,
+}
+
+impl Default for SharedState {
+    fn default() -> Self {
+        Self {
+            clock: PlaybackClock::default(),
+            duration_us: AtomicI64::new(0),
+            speed_milli: AtomicU32::new(1000),
+            volume_milli: AtomicU32::new(800),
+            muted: AtomicBool::new(false),
+            stop: AtomicBool::new(false),
+            generation: AtomicU64::new(0),
+            demux_eof: AtomicBool::new(false),
+            video_done: AtomicBool::new(false),
+            audio_done: AtomicBool::new(false),
+            last_frame: Mutex::new(None),
+            subtitle_delay_us: AtomicI64::new(0),
+            external_subtitles: Mutex::new(None),
+            embedded_subtitles: Mutex::new(SubtitleTrack::default()),
+            audio_tracks: Mutex::new(Vec::new()),
+            subtitle_tracks: Mutex::new(Vec::new()),
+            error: Mutex::new(None),
+            has_audio: AtomicBool::new(false),
+            has_video: AtomicBool::new(false),
+        }
+    }
+}
+
+impl SharedState {
+    pub fn speed(&self) -> f64 {
+        self.speed_milli.load(Ordering::Relaxed) as f64 / 1000.0
+    }
+
+    pub fn set_speed(&self, speed: f64) {
+        let speed = speed.clamp(0.25, 4.0);
+        self.speed_milli
+            .store((speed * 1000.0).round() as u32, Ordering::Relaxed);
+        self.clock.set_speed(speed);
+    }
+
+    /// Gain audio effectif (0.0 si muet).
+    pub fn effective_volume(&self) -> f32 {
+        if self.muted.load(Ordering::Relaxed) {
+            0.0
+        } else {
+            self.volume_milli.load(Ordering::Relaxed) as f32 / 1000.0
+        }
+    }
+
+    pub fn current_generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    pub fn should_stop(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
+
+    pub fn set_error(&self, message: impl Into<String>) {
+        let message = message.into();
+        log::error!("{message}");
+        *self.error.lock().unwrap() = Some(message);
+    }
+
+    /// Texte de sous-titre à afficher à la position donnée, en tenant
+    /// compte du décalage utilisateur. La piste externe a priorité.
+    pub fn subtitle_at(&self, position_us: i64) -> Option<String> {
+        let t = position_us - self.subtitle_delay_us.load(Ordering::Relaxed);
+        if let Some(track) = self.external_subtitles.lock().unwrap().as_ref() {
+            return track.query(t);
+        }
+        self.embedded_subtitles.lock().unwrap().query(t)
+    }
+
+    /// Vrai quand la lecture est entièrement terminée (EOF partout).
+    pub fn playback_finished(&self) -> bool {
+        if !self.demux_eof.load(Ordering::Relaxed) {
+            return false;
+        }
+        let video_ok =
+            !self.has_video.load(Ordering::Relaxed) || self.video_done.load(Ordering::Relaxed);
+        let audio_ok =
+            !self.has_audio.load(Ordering::Relaxed) || self.audio_done.load(Ordering::Relaxed);
+        video_ok && audio_ok
+    }
+}

@@ -1,0 +1,6 @@
+# Permet de compiler sur cette machine sans installer les paquets -dev au
+# niveau système : les en-têtes FFmpeg/ALSA sont extraits dans .devlibs/
+# (voir docs/BUILD.md). Si les paquets -dev sont installés normalement
+# (libavcodec-dev, etc.), ce chemin est simplement ignoré par pkg-config.
+[env]
+PKG_CONFIG_PATH = { value = ".devlibs/root/usr/lib/x86_64-linux-gnu/pkgconfig", relative = true }

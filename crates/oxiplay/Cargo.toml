@@ -1,0 +1,47 @@
+[package]
+name = "oxiplay"
+description = "Lecteur multimédia multiplateforme écrit en Rust (FFmpeg + Slint + cpal)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[dependencies]
+# Décodage : bindings sûrs au-dessus de FFmpeg (demux, decode, scale, resample)
+ffmpeg-next = "7"
+# Interface graphique déclarative, rendu GPU (femtovg/Skia), multiplateforme
+slint = "1.8"
+# Sortie audio bas niveau multiplateforme (ALSA / WASAPI / CoreAudio)
+cpal = "0.15"
+# Canaux MPMC performants pour le pipeline de décodage
+crossbeam-channel = "0.5"
+# Boîtes de dialogue natives (ouverture de fichiers)
+rfd = "0.15"
+# Encodage PNG pour les captures d'écran
+png = "0.17"
+# Persistance des paramètres / playlists / historique
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+# Erreurs & journalisation
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[build-dependencies]
+slint-build = "1.8"
+
+[package.metadata.deb]
+maintainer = "micferna <ocb.ketu@gmail.com>"
+copyright = "2026, micferna"
+extended-description = "Lecteur multimédia complet : vidéo, audio, sous-titres, playlists et streaming réseau (HTTP/HLS/RTSP)."
+depends = "libavcodec61, libavformat61, libavutil59, libswscale8, libswresample5, libasound2t64"
+section = "video"
+priority = "optional"
+assets = [
+    ["target/release/oxiplay", "usr/bin/", "755"],
+    ["../../packaging/oxiplay.desktop", "usr/share/applications/", "644"],
+]

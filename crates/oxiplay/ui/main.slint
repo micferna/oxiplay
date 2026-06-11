@@ -1,0 +1,414 @@
+// Interface principale d'OxiPlay.
+//
+// Slint a été retenu (voir docs/ARCHITECTURE.md) pour son rendu GPU natif,
+// son empreinte mémoire minimale et son langage déclaratif compilé.
+
+import { Button, Slider, ComboBox, ListView, LineEdit } from "std-widgets.slint";
+
+export struct PlaylistEntry {
+    title: string,
+    is-current: bool,
+}
+
+// Bouton compact à base de texte (icônes unicode).
+component ToolButton inherits Rectangle {
+    in property <string> text;
+    in property <string> tip;
+    in property <bool> dark: true;
+    in property <bool> active: false;
+    callback clicked();
+
+    width: 36px;
+    height: 32px;
+    border-radius: 6px;
+    background: touch.has-hover
+        ? (root.dark ? #2c333d : #d8dce2)
+        : (root.active ? (root.dark ? #39414d : #ccd2da) : transparent);
+
+    Text {
+        text: root.text;
+        color: root.dark ? #e8eaed : #1c1e21;
+        font-size: 15px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Barre de progression cliquable / glissable.
+component SeekBar inherits Rectangle {
+    in property <float> progress;
+    in property <bool> dark: true;
+    in property <bool> enabled: true;
+    callback seek(float);
+
+    height: 16px;
+
+    Rectangle {
+        y: parent.height / 2 - 2px;
+        height: 4px;
+        border-radius: 2px;
+        background: root.dark ? #3a414c : #c5cad2;
+
+        Rectangle {
+            x: 0;
+            width: parent.width * max(0.0, min(1.0, root.progress));
+            height: parent.height;
+            border-radius: 2px;
+            background: #ff8a3d;
+        }
+    }
+    Rectangle {
+        x: parent.width * max(0.0, min(1.0, root.progress)) - self.width / 2;
+        y: parent.height / 2 - self.height / 2;
+        width: touch.has-hover || touch.pressed ? 14px : 10px;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: #ff8a3d;
+    }
+    touch := TouchArea {
+        clicked => {
+            if (root.enabled) { root.seek(self.mouse-x / self.width); }
+        }
+        moved => {
+            if (root.enabled && self.pressed) { root.seek(self.mouse-x / self.width); }
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "OxiPlay";
+    preferred-width: 1180px;
+    preferred-height: 720px;
+    min-width: 640px;
+    min-height: 420px;
+    background: root.dark ? #14171c : #f3f4f6;
+    icon: @image-url("icon.png");
+    default-font-size: 13px;
+
+    // ---- État exposé par Rust -------------------------------------------
+    in property <bool> dark: true;
+    in property <image> video-frame;
+    in property <bool> has-video: false;
+    in property <bool> media-loaded: false;
+    in property <string> subtitle-text: "";
+    in property <float> progress: 0.0;
+    in property <bool> seekable: true;
+    in property <string> position-text: "0:00";
+    in property <string> duration-text: "0:00";
+    in property <bool> playing: false;
+    in property <bool> muted: false;
+    in property <string> status-text: "";
+    in property <string> media-title: "";
+    in property <[PlaylistEntry]> playlist-entries: [];
+    in property <[string]> audio-tracks: [];
+    in property <[string]> subtitle-tracks: [];
+    in-out property <int> audio-track-index: 0;
+    in-out property <int> subtitle-track-index: 0;
+    in-out property <int> speed-index: 3; // 1.00×
+    in-out property <float> volume: 0.8;
+    in-out property <bool> playlist-visible: true;
+    in property <string> sub-delay-text: "0.0 s";
+    in property <bool> fullscreen: false;
+
+    // ---- Callbacks vers Rust --------------------------------------------
+    callback play-pause();
+    callback stop-playback();
+    callback seek-to(float);          // fraction 0..1
+    callback seek-relative(float);    // secondes
+    callback previous-item();
+    callback next-item();
+    callback open-files();
+    callback open-url(string);
+    callback volume-changed(float);
+    callback toggle-mute();
+    callback speed-selected(int);
+    callback toggle-fullscreen();
+    callback take-screenshot();
+    callback playlist-activate(int);
+    callback playlist-remove(int);
+    callback playlist-shift(int, int);
+    callback playlist-save();
+    callback playlist-load();
+    callback audio-track-selected(int);
+    callback subtitle-track-selected(int);
+    callback load-subtitle-file();
+    callback sub-delay-adjust(float); // ± secondes
+    callback toggle-theme();
+
+    property <color> fg: root.dark ? #e8eaed : #1c1e21;
+    property <color> fg-dim: root.dark ? #9aa3af : #5b6573;
+    property <color> panel: root.dark ? #1b1f26 : #ffffff;
+
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == " ") { root.play-pause(); return accept; }
+            if (event.text == "f" || event.text == "F") { root.toggle-fullscreen(); return accept; }
+            if (event.text == "m" || event.text == "M") { root.toggle-mute(); return accept; }
+            if (event.text == "s" || event.text == "S") { root.take-screenshot(); return accept; }
+            if (event.text == Key.RightArrow) { root.seek-relative(10); return accept; }
+            if (event.text == Key.LeftArrow) { root.seek-relative(-10); return accept; }
+            if (event.text == Key.UpArrow) { root.volume-changed(min(1.25, root.volume + 0.05)); return accept; }
+            if (event.text == Key.DownArrow) { root.volume-changed(max(0.0, root.volume - 0.05)); return accept; }
+            if (event.text == Key.Escape && root.fullscreen) { root.toggle-fullscreen(); return accept; }
+            return reject;
+        }
+
+        VerticalLayout {
+            spacing: 0;
+
+            // ---- Barre d'outils -----------------------------------------
+            if !root.fullscreen: Rectangle {
+                height: 44px;
+                background: root.panel;
+
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    padding-top: 6px;
+                    padding-bottom: 6px;
+                    spacing: 6px;
+
+                    ToolButton { text: "📂"; dark: root.dark; clicked => { root.open-files(); } }
+                    url-input := LineEdit {
+                        placeholder-text: "URL réseau (http, https, hls .m3u8, rtsp)…";
+                        horizontal-stretch: 1;
+                        accepted(text) => { root.open-url(text); self.text = ""; }
+                    }
+                    ToolButton { text: "📡"; dark: root.dark; clicked => { root.open-url(url-input.text); url-input.text = ""; } }
+                    ToolButton { text: "💬"; dark: root.dark; clicked => { root.load-subtitle-file(); } }
+                    ToolButton { text: "📷"; dark: root.dark; clicked => { root.take-screenshot(); } }
+                    ToolButton { text: root.dark ? "☀" : "🌙"; dark: root.dark; clicked => { root.toggle-theme(); } }
+                    ToolButton {
+                        text: "☰";
+                        dark: root.dark;
+                        active: root.playlist-visible;
+                        clicked => { root.playlist-visible = !root.playlist-visible; }
+                    }
+                }
+            }
+
+            // ---- Zone centrale : vidéo + playlist ------------------------
+            HorizontalLayout {
+                vertical-stretch: 1;
+
+                // Surface vidéo.
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: #000000;
+
+                    if root.has-video: Image {
+                        width: 100%;
+                        height: 100%;
+                        source: root.video-frame;
+                        image-fit: contain;
+                    }
+                    if !root.has-video: VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: root.media-loaded ? "♪ " + root.media-title : "OxiPlay";
+                            color: root.media-loaded ? #e8eaed : #3a414c;
+                            font-size: root.media-loaded ? 22px : 44px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                        }
+                    }
+
+                    // Sous-titres.
+                    if root.subtitle-text != "": Rectangle {
+                        x: (parent.width - self.width) / 2;
+                        y: parent.height - self.height - 28px;
+                        width: sub-text.preferred-width + 24px;
+                        height: sub-text.preferred-height + 12px;
+                        background: #000000b0;
+                        border-radius: 6px;
+                        sub-text := Text {
+                            x: 12px;
+                            y: 6px;
+                            width: min(self.preferred-width, root.width - 80px);
+                            text: root.subtitle-text;
+                            color: #ffffff;
+                            font-size: 20px;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    // Double-clic : plein écran.
+                    TouchArea {
+                        clicked => { root.play-pause(); }
+                        double-clicked => { root.toggle-fullscreen(); }
+                    }
+                }
+
+                // Panneau playlist.
+                if root.playlist-visible && !root.fullscreen: Rectangle {
+                    width: 290px;
+                    background: root.panel;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+
+                        Text {
+                            text: "Liste de lecture";
+                            color: root.fg;
+                            font-size: 14px;
+                            font-weight: 700;
+                        }
+
+                        ListView {
+                            vertical-stretch: 1;
+                            for entry[idx] in root.playlist-entries: Rectangle {
+                                height: 34px;
+                                border-radius: 6px;
+                                background: entry.is-current
+                                    ? (root.dark ? #324055 : #dce7f5)
+                                    : (row-touch.has-hover ? (root.dark ? #232932 : #eef0f3) : transparent);
+
+                                row-touch := TouchArea {
+                                    clicked => { root.playlist-activate(idx); }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 4px;
+                                    spacing: 2px;
+                                    Text {
+                                        text: entry.title;
+                                        color: root.fg;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                    ToolButton { text: "▲"; dark: root.dark; width: 24px; clicked => { root.playlist-shift(idx, -1); } }
+                                    ToolButton { text: "▼"; dark: root.dark; width: 24px; clicked => { root.playlist-shift(idx, 1); } }
+                                    ToolButton { text: "✕"; dark: root.dark; width: 24px; clicked => { root.playlist-remove(idx); } }
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Button { text: "Ajouter…"; clicked => { root.open-files(); } }
+                            Button { text: "💾"; clicked => { root.playlist-save(); } }
+                            Button { text: "📥"; clicked => { root.playlist-load(); } }
+                        }
+                    }
+                }
+            }
+
+            // ---- Barre de progression ------------------------------------
+            Rectangle {
+                height: 28px;
+                background: root.panel;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    Text {
+                        text: root.position-text;
+                        color: root.fg-dim;
+                        vertical-alignment: center;
+                        width: 56px;
+                    }
+                    SeekBar {
+                        horizontal-stretch: 1;
+                        progress: root.progress;
+                        dark: root.dark;
+                        enabled: root.seekable && root.media-loaded;
+                        seek(f) => { root.seek-to(f); }
+                    }
+                    Text {
+                        text: root.duration-text;
+                        color: root.fg-dim;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                        width: 56px;
+                    }
+                }
+            }
+
+            // ---- Contrôles ------------------------------------------------
+            Rectangle {
+                height: 52px;
+                background: root.panel;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    padding-top: 8px;
+                    padding-bottom: 8px;
+                    spacing: 6px;
+
+                    ToolButton { text: "⏮"; tip: "Précédent"; dark: root.dark; clicked => { root.previous-item(); } }
+                    ToolButton { text: "⏪"; tip: "-10 s"; dark: root.dark; clicked => { root.seek-relative(-10); } }
+                    ToolButton {
+                        text: root.playing ? "⏸" : "▶";
+                        dark: root.dark;
+                        width: 44px;
+                        clicked => { root.play-pause(); }
+                    }
+                    ToolButton { text: "⏹"; tip: "Stop"; dark: root.dark; clicked => { root.stop-playback(); } }
+                    ToolButton { text: "⏩"; tip: "+10 s"; dark: root.dark; clicked => { root.seek-relative(10); } }
+                    ToolButton { text: "⏭"; tip: "Suivant"; dark: root.dark; clicked => { root.next-item(); } }
+
+                    Rectangle { width: 10px; }
+
+                    Text { text: "Vitesse"; color: root.fg-dim; vertical-alignment: center; }
+                    ComboBox {
+                        width: 92px;
+                        model: ["0.25×", "0.50×", "0.75×", "1.00×", "1.25×", "1.50×", "2.00×", "3.00×", "4.00×"];
+                        current-index <=> root.speed-index;
+                        selected => { root.speed-selected(self.current-index); }
+                    }
+
+                    Text { text: "Audio"; color: root.fg-dim; vertical-alignment: center; }
+                    ComboBox {
+                        width: 130px;
+                        model: root.audio-tracks;
+                        current-index <=> root.audio-track-index;
+                        selected => { root.audio-track-selected(self.current-index); }
+                    }
+
+                    Text { text: "ST"; color: root.fg-dim; vertical-alignment: center; }
+                    ComboBox {
+                        width: 130px;
+                        model: root.subtitle-tracks;
+                        current-index <=> root.subtitle-track-index;
+                        selected => { root.subtitle-track-selected(self.current-index); }
+                    }
+                    ToolButton { text: "−"; tip: "ST plus tôt"; dark: root.dark; width: 24px; clicked => { root.sub-delay-adjust(-0.5); } }
+                    Text { text: root.sub-delay-text; color: root.fg-dim; vertical-alignment: center; }
+                    ToolButton { text: "+"; tip: "ST plus tard"; dark: root.dark; width: 24px; clicked => { root.sub-delay-adjust(0.5); } }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    Text {
+                        text: root.status-text;
+                        color: root.fg-dim;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        max-width: 260px;
+                    }
+
+                    ToolButton {
+                        text: root.muted ? "🔇" : "🔊";
+                        dark: root.dark;
+                        clicked => { root.toggle-mute(); }
+                    }
+                    Slider {
+                        width: 110px;
+                        minimum: 0.0;
+                        maximum: 1.25;
+                        value <=> root.volume;
+                        changed(v) => { root.volume-changed(v); }
+                    }
+                    ToolButton { text: "⛶"; tip: "Plein écran"; dark: root.dark; clicked => { root.toggle-fullscreen(); } }
+                }
+            }
+        }
+    }
+}

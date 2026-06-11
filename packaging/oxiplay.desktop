@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OxiPlay
+GenericName=Lecteur multimédia
+Comment=Lecteur multimédia écrit en Rust (vidéo, audio, sous-titres, streaming)
+Exec=oxiplay %U
+Icon=oxiplay
+Terminal=false
+Categories=AudioVideo;Player;Video;Audio;
+MimeType=video/mp4;video/x-matroska;video/x-msvideo;video/quicktime;video/webm;video/mpeg;video/x-flv;video/mp2t;video/x-ms-wmv;audio/mpeg;audio/flac;audio/x-wav;audio/ogg;audio/aac;audio/mp4;audio/opus;audio/x-ms-wma;x-scheme-handler/rtsp;
