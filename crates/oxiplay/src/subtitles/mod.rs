@@ -122,7 +122,14 @@ fn parse_timestamp(ts: &str) -> Option<i64> {
         [m, s] => (0, m.trim().parse().ok()?, s.parse().ok()?),
         _ => return None,
     };
-    Some(((h * 3600 + m * 60 + s) * 1000 + ms) * 1000)
+    // Arithmétique protégée : un fichier hostile avec des heures démesurées
+    // ne doit ni paniquer (debug) ni produire une valeur erronée (release).
+    h.checked_mul(3600)?
+        .checked_add(m.checked_mul(60)?)?
+        .checked_add(s)?
+        .checked_mul(1000)?
+        .checked_add(ms)?
+        .checked_mul(1000)
 }
 
 /// `H:MM:SS.cc` (centisecondes, format ASS/SSA) → µs.
@@ -138,7 +145,12 @@ fn parse_ass_timestamp(ts: &str) -> Option<i64> {
         s.parse().ok()?,
         cs.parse().ok()?,
     );
-    Some(((h * 3600 + m * 60 + s) * 100 + cs) * 10_000)
+    h.checked_mul(3600)?
+        .checked_add(m.checked_mul(60)?)?
+        .checked_add(s)?
+        .checked_mul(100)?
+        .checked_add(cs)?
+        .checked_mul(10_000)
 }
 
 /// Retire les balises HTML simples (`<i>`, `<b>`, …) présentes dans SRT/VTT.
@@ -376,6 +388,16 @@ mod tests {
             text: "B".into(),
         });
         assert_eq!(t.query(2_000_000).as_deref(), Some("A\nB"));
+    }
+
+    #[test]
+    fn hostile_timestamps_do_not_panic() {
+        // Heures démesurées : dépassement i64 → None, jamais de panique.
+        let srt = "1\n99999999999:00:00,000 --> 99999999999:00:01,000\nX\n";
+        assert!(parse_srt(srt).unwrap().is_empty());
+        // ASS de même.
+        let ass = "[Events]\nFormat: Layer, Start, End, Text\nDialogue: 0,99999999999:00:00.00,99999999999:00:01.00,Y\n";
+        assert!(parse_ass(ass).unwrap().is_empty());
     }
 
     #[test]

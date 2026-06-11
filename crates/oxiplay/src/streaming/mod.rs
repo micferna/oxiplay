@@ -55,11 +55,28 @@ pub fn classify(input: &str) -> StreamKind {
 ///
 /// Ces options sont passées à `avformat_open_input` ; elles améliorent
 /// nettement la robustesse sur les flux réseau instables.
+///
+/// # Sécurité
+///
+/// Pour les sources **réseau**, un `protocol_whitelist` strict est imposé :
+/// libavformat (et le demuxeur HLS en particulier) suit les URL imbriquées
+/// d'un manifeste/playlist ; sans liste blanche, un `.m3u8` malveillant
+/// pourrait référencer `file:`, `concat:`, `subfile:`, `data:`… et exfiltrer
+/// des fichiers locaux ou abuser d'un protocole dangereux. On exclut donc
+/// `file` de toute source distante (les fichiers locaux passent par
+/// [`StreamKind::Local`], sans restriction, puisque l'utilisateur ouvre ses
+/// propres fichiers). Voir SECURITY.md.
 pub fn demux_options(kind: StreamKind) -> Dictionary<'static> {
     let mut opts = Dictionary::new();
     match kind {
         StreamKind::Local => {}
         StreamKind::Http | StreamKind::Hls => {
+            // Liste blanche : pas de `file`, `concat`, `subfile`… depuis un
+            // flux distant. `crypto`/`tls` couvrent HTTPS et HLS-AES.
+            opts.set(
+                "protocol_whitelist",
+                "http,https,tcp,tls,crypto,data,httpproxy",
+            );
             // Reconnexion automatique en cas de coupure réseau.
             opts.set("reconnect", "1");
             opts.set("reconnect_streamed", "1");
@@ -69,11 +86,17 @@ pub fn demux_options(kind: StreamKind) -> Dictionary<'static> {
             opts.set("user_agent", concat!("oxiplay/", env!("CARGO_PKG_VERSION")));
         }
         StreamKind::Rtsp => {
+            opts.set(
+                "protocol_whitelist",
+                "rtsp,rtps,rtp,udp,tcp,tls,crypto,http,https",
+            );
             // TCP est beaucoup plus fiable que l'UDP par défaut derrière un NAT.
             opts.set("rtsp_transport", "tcp");
             opts.set("stimeout", "15000000");
         }
         StreamKind::Iptv => {
+            // `http`/`https` autorisés pour les listes M3U distantes.
+            opts.set("protocol_whitelist", "udp,rtp,tcp,http,https,tls,crypto");
             // Tolérance aux pertes de paquets multicast.
             opts.set("fifo_size", "1000000");
             opts.set("overrun_nonfatal", "1");
@@ -103,5 +126,41 @@ mod tests {
     fn url_detection() {
         assert!(is_url("HTTP://EX.COM/a"));
         assert!(!is_url("relative/path.mp4"));
+    }
+
+    #[test]
+    fn network_sources_forbid_file_protocol() {
+        // Sécurité : aucune source distante ne doit autoriser `file:`
+        // (sinon un manifeste piégé lirait des fichiers locaux).
+        for kind in [
+            StreamKind::Http,
+            StreamKind::Hls,
+            StreamKind::Rtsp,
+            StreamKind::Iptv,
+        ] {
+            let opts = demux_options(kind);
+            let whitelist = opts
+                .get("protocol_whitelist")
+                .unwrap_or_else(|| panic!("{kind:?} sans protocol_whitelist"));
+            assert!(
+                !whitelist.split(',').any(|p| p == "file"),
+                "{kind:?} autorise file: ({whitelist})"
+            );
+            // Pas de protocoles dangereux d'enchaînement.
+            for bad in ["concat", "subfile", "fd", "pipe"] {
+                assert!(
+                    !whitelist.split(',').any(|p| p == bad),
+                    "{kind:?} autorise {bad}: ({whitelist})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn local_source_is_unrestricted() {
+        // L'utilisateur ouvre ses propres fichiers : pas de liste blanche.
+        assert!(demux_options(StreamKind::Local)
+            .get("protocol_whitelist")
+            .is_none());
     }
 }

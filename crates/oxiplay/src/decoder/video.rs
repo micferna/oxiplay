@@ -160,6 +160,13 @@ fn convert_frame(
 ) -> anyhow::Result<VideoFrameData> {
     let (width, height) = (decoded.width(), decoded.height());
     anyhow::ensure!(width > 0 && height > 0, "image vide");
+    // Garde-fou anti-OOM : une résolution démesurée annoncée par un fichier
+    // piégé entraînerait une allocation RGBA gigantesque. 16384² couvre
+    // largement la 8K/16K légitime (~1 Go en RGBA, déjà confortable).
+    anyhow::ensure!(
+        width <= 16_384 && height <= 16_384,
+        "résolution rejetée : {width}x{height}"
+    );
 
     // (Re)crée le scaler si le format d'entrée a changé.
     let needs_rebuild = !matches!(
