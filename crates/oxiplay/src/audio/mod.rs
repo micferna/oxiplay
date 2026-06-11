@@ -80,7 +80,7 @@ impl AudioOutput {
         let config = device
             .default_output_config()
             .context("configuration audio par défaut indisponible")?;
-        let sample_rate = config.sample_rate().0;
+        let sample_rate = config.sample_rate();
         let channels = config.channels();
         let queue = Arc::new(AudioQueue::new(sample_rate));
         let session: Arc<Mutex<Option<Arc<SharedState>>>> = Arc::new(Mutex::new(None));
@@ -88,7 +88,7 @@ impl AudioOutput {
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => Self::build_stream::<f32>(
                 &device,
-                &config.into(),
+                config.into(),
                 channels,
                 sample_rate,
                 &queue,
@@ -96,7 +96,7 @@ impl AudioOutput {
             )?,
             cpal::SampleFormat::I16 => Self::build_stream::<i16>(
                 &device,
-                &config.into(),
+                config.into(),
                 channels,
                 sample_rate,
                 &queue,
@@ -104,7 +104,7 @@ impl AudioOutput {
             )?,
             cpal::SampleFormat::U16 => Self::build_stream::<u16>(
                 &device,
-                &config.into(),
+                config.into(),
                 channels,
                 sample_rate,
                 &queue,
@@ -124,7 +124,7 @@ impl AudioOutput {
 
     fn build_stream<T>(
         device: &cpal::Device,
-        config: &cpal::StreamConfig,
+        config: cpal::StreamConfig,
         channels: u16,
         sample_rate: u32,
         queue: &Arc<AudioQueue>,
