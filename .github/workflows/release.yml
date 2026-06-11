@@ -36,7 +36,7 @@ jobs:
           cp README.md LICENSE CHANGELOG.md packaging/oxiplay.desktop dist/oxiplay/
           tar -C dist -czf "oxiplay-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" oxiplay
       - name: Release GitHub
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
