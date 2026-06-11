@@ -3690,7 +3690,7 @@ dependencies = [
  "env_logger",
  "ffmpeg-the-third",
  "log",
- "png 0.17.16",
+ "png 0.18.1",
  "rfd",
  "serde",
  "serde_json",
