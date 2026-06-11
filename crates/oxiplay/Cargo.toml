@@ -18,7 +18,7 @@ ffmpeg-the-third = "5"
 # Interface graphique déclarative, rendu GPU (femtovg/Skia), multiplateforme
 slint = "1.8"
 # Sortie audio bas niveau multiplateforme (ALSA / WASAPI / CoreAudio)
-cpal = "0.15"
+cpal = "0.18"
 # Canaux MPMC performants pour le pipeline de décodage
 crossbeam-channel = "0.5"
 # Boîtes de dialogue natives (ouverture de fichiers)
