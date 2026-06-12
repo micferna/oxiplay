@@ -22,6 +22,7 @@
 mod audio;
 mod audio_filter;
 mod demux;
+mod hwaccel;
 mod video;
 
 pub use audio::run_audio_decoder;

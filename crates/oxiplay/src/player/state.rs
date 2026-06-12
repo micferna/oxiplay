@@ -84,6 +84,8 @@ pub struct SharedState {
     /// Compteur incrémenté à chaque modification de l'égaliseur : permet au
     /// thread audio de détecter un changement et de reconstruire le graphe.
     pub eq_generation: AtomicU64,
+    /// Décodage matériel autorisé (repli logiciel si indisponible).
+    pub hwaccel_enabled: AtomicBool,
 }
 
 impl Default for SharedState {
@@ -111,6 +113,7 @@ impl Default for SharedState {
             has_video: AtomicBool::new(false),
             equalizer: Mutex::new([0.0; 10]),
             eq_generation: AtomicU64::new(0),
+            hwaccel_enabled: AtomicBool::new(true),
         }
     }
 }

@@ -12,6 +12,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// Force le décodage logiciel : le chemin matériel (GPU) n'est pas
+/// reproductible en CI et serait non déterministe selon la machine.
+fn force_software_decoding() {
+    std::env::set_var("OXIPLAY_NO_HWACCEL", "1");
+}
+
 /// Génère (une fois) un MP4 de 2 s : mire 320×240 à 10 i/s + sinus 440 Hz.
 fn test_media() -> Option<PathBuf> {
     let path = std::env::temp_dir().join("oxiplay-integration-test.mp4");
@@ -63,6 +69,7 @@ fn open_decode_seek_and_stop() {
         eprintln!("ffmpeg introuvable : test d'intégration ignoré");
         return;
     };
+    force_software_decoding();
     ffmpeg_the_third::init().unwrap();
 
     let frames = Arc::new(AtomicUsize::new(0));
@@ -141,6 +148,7 @@ fn playback_reaches_end() {
         eprintln!("ffmpeg introuvable : test d'intégration ignoré");
         return;
     };
+    force_software_decoding();
     ffmpeg_the_third::init().unwrap();
 
     let engine = PlayerEngine::open(

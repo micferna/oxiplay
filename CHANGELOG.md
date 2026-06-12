@@ -19,6 +19,11 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
 - **Rendu stylé des sous-titres ASS/SSA** (natif, sans libass) : alignement
   (`\an`/`\a`, 9 positions), gras, italique et couleur primaire sont
   interprétés et appliqués à l'affichage.
+- **Décodage vidéo accéléré matériellement** : VAAPI (Linux), NVDEC/CUDA,
+  VideoToolbox (macOS), D3D11VA/DXVA2 (Windows), VDPAU. Détection
+  automatique du meilleur périphérique, rapatriement des trames GPU vers le
+  pipeline RGBA, et **repli logiciel transparent** si aucune accélération
+  n'est disponible. Désactivable via `OXIPLAY_NO_HWACCEL=1`.
 
 ### Modifié
 - Pipeline audio refondu autour d'un graphe de filtres (égaliseur → atempo →

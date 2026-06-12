@@ -3,12 +3,14 @@
 //! La conversion d'espace colorimétrique (YUV → RGBA) est faite ici par
 //! libswscale, hors du thread d'interface, pour ne jamais bloquer l'UI.
 
+use super::hwaccel::{self, HwAccel};
 use super::{ts_to_us, PacketMsg, VideoFrameMsg};
 use crate::player::state::SharedState;
 use crate::video::VideoFrameData;
 use crossbeam_channel::{Receiver, RecvTimeoutError, SendTimeoutError, Sender};
 use ffmpeg_the_third as ffmpeg;
 use ffmpeg_the_third::software::scaling;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,6 +30,7 @@ pub fn run_video_decoder(
     tx: Sender<VideoFrameMsg>,
 ) {
     let mut decoder: Option<ffmpeg::decoder::Video> = None;
+    let mut hw: Option<HwAccel> = None;
     let mut time_base = ffmpeg::Rational::new(1, 1_000_000);
     let mut scaler: Option<ScalerCache> = None;
     let mut last_pts_us: i64 = 0;
@@ -47,15 +50,26 @@ pub fn run_video_decoder(
                 parameters,
                 time_base: tb,
             } => {
-                match ffmpeg::codec::context::Context::from_parameters(parameters)
-                    .and_then(|ctx| ctx.decoder().video())
-                {
+                hw = None;
+                let opened = ffmpeg::codec::context::Context::from_parameters(parameters).and_then(
+                    |mut ctx| {
+                        // Active l'accélération matérielle (si activée et
+                        // disponible) avant l'ouverture du décodeur ; les
+                        // réglages restent posés sur le même AVCodecContext.
+                        if shared.hwaccel_enabled.load(Ordering::Relaxed) {
+                            hw = unsafe { hwaccel::setup(ctx.as_mut_ptr()) };
+                        }
+                        ctx.decoder().video()
+                    },
+                );
+                match opened {
                     Ok(d) => {
                         log::info!(
-                            "décodeur vidéo prêt : {:?} {}x{}",
+                            "décodeur vidéo prêt : {:?} {}x{} ({})",
                             d.id(),
                             d.width(),
-                            d.height()
+                            d.height(),
+                            hw.as_ref().map(|h| h.name).unwrap_or("logiciel"),
                         );
                         decoder = Some(d);
                         time_base = tb;
@@ -87,6 +101,7 @@ pub fn run_video_decoder(
                 drain_frames(
                     &shared,
                     d,
+                    hw.as_ref(),
                     &tx,
                     &mut scaler,
                     time_base,
@@ -101,6 +116,7 @@ pub fn run_video_decoder(
                     drain_frames(
                         &shared,
                         d,
+                        hw.as_ref(),
                         &tx,
                         &mut scaler,
                         time_base,
@@ -115,9 +131,11 @@ pub fn run_video_decoder(
 }
 
 /// Récupère toutes les images disponibles du décodeur et les transmet.
+#[allow(clippy::too_many_arguments)]
 fn drain_frames(
     shared: &Arc<SharedState>,
     decoder: &mut ffmpeg::decoder::Video,
+    hw: Option<&HwAccel>,
     tx: &Sender<VideoFrameMsg>,
     scaler: &mut Option<ScalerCache>,
     time_base: ffmpeg::Rational,
@@ -126,7 +144,22 @@ fn drain_frames(
 ) {
     let mut decoded = ffmpeg::frame::Video::empty();
     while decoder.receive_frame(&mut decoded).is_ok() {
-        let mut frame = match convert_frame(&decoded, scaler, time_base, last_pts_us) {
+        // Trame GPU : rapatriement en mémoire système pour le pipeline RGBA.
+        let software;
+        let frame_ref = match hw {
+            Some(h) if decoded.format() == h.hw_pixel() => match hwaccel::transfer(&decoded) {
+                Some(sw) => {
+                    software = sw;
+                    &software
+                }
+                None => {
+                    log::warn!("rapatriement de trame matérielle échoué");
+                    continue;
+                }
+            },
+            _ => &decoded,
+        };
+        let mut frame = match convert_frame(frame_ref, scaler, time_base, last_pts_us) {
             Ok(f) => f,
             Err(e) => {
                 log::warn!("conversion d'image échouée : {e}");
