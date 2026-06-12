@@ -5,7 +5,7 @@
 use super::{ts_to_us, DemuxCommand, PacketMsg};
 use crate::audio::AudioQueue;
 use crate::player::state::{SharedState, TrackInfo};
-use crate::subtitles::{embedded_ass_to_text, SubtitleCue, SubtitleTrack};
+use crate::subtitles::{embedded_ass_to_styled, CueStyle, SubtitleCue, SubtitleTrack};
 use crossbeam_channel::{Receiver, SendTimeoutError, Sender};
 use ffmpeg_the_third as ffmpeg;
 use std::sync::atomic::Ordering;
@@ -458,10 +458,15 @@ fn decode_subtitle(st: &mut DemuxState, packet: &ffmpeg::Packet, time_base: ffmp
 
     let end_us = start_us + duration_us;
     let mut text_parts: Vec<String> = Vec::new();
+    let mut style = CueStyle::default();
     for rect in subtitle.rects() {
         match rect {
             ffmpeg::subtitle::Rect::Text(t) => text_parts.push(t.get().to_string()),
-            ffmpeg::subtitle::Rect::Ass(a) => text_parts.push(embedded_ass_to_text(a.get())),
+            ffmpeg::subtitle::Rect::Ass(a) => {
+                let (text, parsed) = embedded_ass_to_styled(a.get());
+                style = parsed;
+                text_parts.push(text);
+            }
             // Sous-titres image (PGS/DVD) : convertis en RGBA et incrustés
             // sur la vidéo (voir crate::subtitles::bitmap).
             ffmpeg::subtitle::Rect::Bitmap(b) => {
@@ -485,6 +490,7 @@ fn decode_subtitle(st: &mut DemuxState, packet: &ffmpeg::Packet, time_base: ffmp
             start_us,
             end_us,
             text,
+            style,
         });
 }
 

@@ -13,6 +13,13 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
 - **Égaliseur audio 10 bandes** (31 Hz → 16 kHz) : filtres `equalizer`
   libavfilter, panneau d'interface avec sliders verticaux, gains persistés.
 
+- **Sous-titres image PGS/DVD** : les bitmaps palettisés du décodeur sont
+  convertis en RGBA et incrustés sur l'image vidéo (donc mis à l'échelle
+  avec elle).
+- **Rendu stylé des sous-titres ASS/SSA** (natif, sans libass) : alignement
+  (`\an`/`\a`, 9 positions), gras, italique et couleur primaire sont
+  interprétés et appliqués à l'affichage.
+
 ### Modifié
 - Pipeline audio refondu autour d'un graphe de filtres (égaliseur → atempo →
   conversion), reconstruit à la volée quand la vitesse ou les gains changent.

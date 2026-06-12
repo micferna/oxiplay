@@ -180,6 +180,15 @@ impl SharedState {
         self.embedded_subtitles.lock().unwrap().query(t)
     }
 
+    /// Style (alignement, gras, italique, couleur) du sous-titre actif.
+    pub fn subtitle_style_at(&self, position_us: i64) -> crate::subtitles::CueStyle {
+        let t = position_us - self.subtitle_delay_us.load(Ordering::Relaxed);
+        if let Some(track) = self.external_subtitles.lock().unwrap().as_ref() {
+            return track.query_style(t);
+        }
+        self.embedded_subtitles.lock().unwrap().query_style(t)
+    }
+
     /// Vrai quand la lecture est entièrement terminée (EOF partout).
     pub fn playback_finished(&self) -> bool {
         if !self.demux_eof.load(Ordering::Relaxed) {

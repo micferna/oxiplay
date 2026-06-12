@@ -81,9 +81,11 @@ MVP fonctionnel. Fonctionnalités avancées (voir [docs/ARCHITECTURE.md](docs/AR
 
 - [x] **Vitesse sans changement de hauteur** (filtre `atempo`)
 - [x] **Égaliseur audio 10 bandes** (libavfilter, UI + persistance)
+- [x] **Sous-titres image PGS/DVD** (incrustation RGBA sur la vidéo)
+- [x] **Rendu stylé ASS** (alignement, gras, italique, couleur — natif)
 - [ ] Accélération matérielle (VAAPI, NVDEC, VideoToolbox, D3D11VA)
 - [ ] Rendu wgpu zéro copie (textures YUV + shader) pour le 4K/HDR
-- [ ] Sous-titres bitmap (PGS/DVD), rendu stylé libass
+- [ ] libass complet (polices embarquées, karaoké, transformations)
 - [ ] Mini-lecteur / Picture-in-Picture
 
 ## Contribuer

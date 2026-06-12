@@ -11,12 +11,49 @@ pub use bitmap::{BitmapSubtitle, BitmapSubtitleTrack};
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
+/// Style d'affichage d'une réplique, dérivé des balises ASS/SSA. Les
+/// sous-titres texte simples (SRT/VTT) utilisent les valeurs par défaut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CueStyle {
+    /// Alignement façon pavé numérique (1=bas-gauche … 9=haut-droite),
+    /// 2 = bas-centre par défaut.
+    pub align: u8,
+    pub bold: bool,
+    pub italic: bool,
+    /// Couleur primaire `0xRRGGBB`, si spécifiée.
+    pub color: Option<u32>,
+}
+
+impl Default for CueStyle {
+    fn default() -> Self {
+        Self {
+            align: 2,
+            bold: false,
+            italic: false,
+            color: None,
+        }
+    }
+}
+
 /// Une réplique de sous-titre, bornée en temps média (microsecondes).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubtitleCue {
     pub start_us: i64,
     pub end_us: i64,
     pub text: String,
+    pub style: CueStyle,
+}
+
+impl SubtitleCue {
+    /// Réplique texte simple (style par défaut), pour SRT/VTT.
+    pub fn plain(start_us: i64, end_us: i64, text: String) -> Self {
+        Self {
+            start_us,
+            end_us,
+            text,
+            style: CueStyle::default(),
+        }
+    }
 }
 
 /// Une piste de sous-titres triée par temps de début, interrogeable
@@ -71,6 +108,18 @@ impl SubtitleTrack {
         } else {
             Some(active.join("\n"))
         }
+    }
+
+    /// Style de la réplique active à `t_us` (la dernière en cas de
+    /// superposition). Style par défaut si aucune.
+    pub fn query_style(&self, t_us: i64) -> CueStyle {
+        let end = self.cues.partition_point(|c| c.start_us <= t_us);
+        let start = end.saturating_sub(8);
+        self.cues[start..end]
+            .iter()
+            .rfind(|c| c.start_us <= t_us && t_us < c.end_us)
+            .map(|c| c.style)
+            .unwrap_or_default()
     }
 }
 
@@ -192,11 +241,11 @@ pub fn parse_srt(input: &str) -> Result<Vec<SubtitleCue>> {
         };
         let text = strip_html_tags(&lines.collect::<Vec<_>>().join("\n"));
         if !text.trim().is_empty() {
-            cues.push(SubtitleCue {
+            cues.push(SubtitleCue::plain(
                 start_us,
                 end_us,
-                text: text.trim().to_string(),
-            });
+                text.trim().to_string(),
+            ));
         }
     }
     Ok(cues)
@@ -239,11 +288,11 @@ pub fn parse_vtt(input: &str) -> Result<Vec<SubtitleCue>> {
         rest.retain(|l| !l.trim().is_empty());
         let text = strip_html_tags(&rest.join("\n"));
         if !text.trim().is_empty() {
-            cues.push(SubtitleCue {
+            cues.push(SubtitleCue::plain(
                 start_us,
                 end_us,
-                text: text.trim().to_string(),
-            });
+                text.trim().to_string(),
+            ));
         }
     }
     Ok(cues)
@@ -314,12 +363,14 @@ pub fn parse_ass(input: &str) -> Result<Vec<SubtitleCue>> {
             ) else {
                 continue;
             };
-            let text = clean_ass_text(fields[text_idx]);
+            let raw = fields[text_idx];
+            let text = clean_ass_text(raw);
             if !text.is_empty() {
                 cues.push(SubtitleCue {
                     start_us,
                     end_us,
                     text,
+                    style: parse_ass_style(raw),
                 });
             }
         }
@@ -332,6 +383,91 @@ pub fn parse_ass(input: &str) -> Result<Vec<SubtitleCue>> {
 pub fn embedded_ass_to_text(payload: &str) -> String {
     let text = payload.splitn(9, ',').nth(8).unwrap_or(payload);
     clean_ass_text(text)
+}
+
+/// Comme [`embedded_ass_to_text`], mais renvoie aussi le style dérivé des
+/// balises d'override (alignement, gras, italique, couleur).
+pub fn embedded_ass_to_styled(payload: &str) -> (String, CueStyle) {
+    let raw = payload.splitn(9, ',').nth(8).unwrap_or(payload);
+    (clean_ass_text(raw), parse_ass_style(raw))
+}
+
+/// Extrait le style des balises d'override ASS (`{\an8\b1\i1\c&Hxxxxxx&}`).
+/// Les balises inconnues sont ignorées. Seul le premier bloc d'override
+/// significatif est pris en compte (suffisant pour le positionnement et le
+/// style d'une réplique courante).
+pub fn parse_ass_style(raw: &str) -> CueStyle {
+    let mut style = CueStyle::default();
+    // Concatène le contenu de tous les blocs `{...}`.
+    let mut in_tag = false;
+    let mut tags = String::new();
+    for c in raw.chars() {
+        match c {
+            '{' => in_tag = true,
+            '}' => in_tag = false,
+            c if in_tag => tags.push(c),
+            _ => {}
+        }
+    }
+
+    // Alignement : `\an<1-9>` (pavé numérique) ou `\a<1-11>` (hérité).
+    if let Some(n) = capture_after(&tags, "\\an") {
+        if (1..=9).contains(&n) {
+            style.align = n as u8;
+        }
+    } else if let Some(n) = capture_after(&tags, "\\a") {
+        // Conversion héritée → pavé numérique.
+        style.align = match n {
+            1 => 1,
+            2 => 2,
+            3 => 3,
+            5 => 7,
+            6 => 8,
+            7 => 9,
+            9 => 4,
+            10 => 5,
+            11 => 6,
+            _ => 2,
+        };
+    }
+
+    if let Some(v) = capture_after(&tags, "\\b") {
+        style.bold = v != 0;
+    }
+    if let Some(v) = capture_after(&tags, "\\i") {
+        style.italic = v != 0;
+    }
+    // Couleur primaire `\c&Hbbggrr&` ou `\1c&Hbbggrr&` (ASS = BGR).
+    if let Some(bgr) = capture_ass_color(&tags) {
+        let r = bgr & 0xff;
+        let g = (bgr >> 8) & 0xff;
+        let b = (bgr >> 16) & 0xff;
+        style.color = Some((r << 16) | (g << 8) | b);
+    }
+    style
+}
+
+/// Lit l'entier décimal qui suit immédiatement `tag` dans `tags`.
+fn capture_after(tags: &str, tag: &str) -> Option<i64> {
+    let pos = tags.find(tag)? + tag.len();
+    let rest = &tags[pos..];
+    // S'arrête au premier caractère non chiffre (hors signe initial).
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
+/// Lit une couleur ASS `&Hbbggrr&` après `\c` ou `\1c`.
+fn capture_ass_color(tags: &str) -> Option<u32> {
+    for marker in ["\\1c&H", "\\c&H"] {
+        if let Some(pos) = tags.find(marker) {
+            let rest = &tags[pos + marker.len()..];
+            let hex: String = rest.chars().take_while(|c| c.is_ascii_hexdigit()).collect();
+            if !hex.is_empty() {
+                return u32::from_str_radix(&hex, 16).ok();
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -380,17 +516,27 @@ mod tests {
     #[test]
     fn overlapping_cues_are_joined() {
         let mut t = SubtitleTrack::default();
-        t.insert(SubtitleCue {
-            start_us: 0,
-            end_us: 5_000_000,
-            text: "A".into(),
-        });
-        t.insert(SubtitleCue {
-            start_us: 1_000_000,
-            end_us: 3_000_000,
-            text: "B".into(),
-        });
+        t.insert(SubtitleCue::plain(0, 5_000_000, "A".into()));
+        t.insert(SubtitleCue::plain(1_000_000, 3_000_000, "B".into()));
         assert_eq!(t.query(2_000_000).as_deref(), Some("A\nB"));
+    }
+
+    #[test]
+    fn ass_style_parsing() {
+        // Haut-centre, gras, italique, couleur primaire bleue (&HFF0000& = BGR).
+        let style = parse_ass_style("{\\an8\\b1\\i1\\c&HFF0000&}Salut");
+        assert_eq!(style.align, 8);
+        assert!(style.bold && style.italic);
+        assert_eq!(style.color, Some(0x0000FF)); // bleu en RGB
+                                                 // Style par défaut sans balises.
+        assert_eq!(parse_ass_style("Texte"), CueStyle::default());
+    }
+
+    #[test]
+    fn embedded_ass_styled() {
+        let (text, style) = embedded_ass_to_styled("12,0,Default,,0,0,0,,{\\an5}Centre");
+        assert_eq!(text, "Centre");
+        assert_eq!(style.align, 5);
     }
 
     #[test]
@@ -406,11 +552,7 @@ mod tests {
     #[test]
     fn duplicate_insert_ignored() {
         let mut t = SubtitleTrack::default();
-        let cue = SubtitleCue {
-            start_us: 0,
-            end_us: 1,
-            text: "X".into(),
-        };
+        let cue = SubtitleCue::plain(0, 1, "X".into());
         t.insert(cue.clone());
         t.insert(cue);
         assert_eq!(t.len(), 1);

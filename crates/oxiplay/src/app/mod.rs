@@ -542,8 +542,21 @@ impl App {
             ui.set_progress((position as f32 / duration as f32).clamp(0.0, 1.0));
         }
 
-        // Sous-titres.
+        // Sous-titres (texte + style ASS : alignement, gras, italique,
+        // couleur).
         let subtitle = shared.subtitle_at(position).unwrap_or_default();
+        if !subtitle.is_empty() {
+            let style = shared.subtitle_style_at(position);
+            ui.set_subtitle_align(style.align as i32);
+            ui.set_subtitle_bold(style.bold);
+            ui.set_subtitle_italic(style.italic);
+            ui.set_subtitle_color(
+                style
+                    .color
+                    .map(slint_color)
+                    .unwrap_or_else(|| slint::Color::from_rgb_u8(255, 255, 255)),
+            );
+        }
         if ui.get_subtitle_text() != subtitle.as_str() {
             ui.set_subtitle_text(subtitle.into());
         }
@@ -618,6 +631,15 @@ fn track_labels(tracks: &[TrackInfo]) -> ModelRc<SharedString> {
 /// Convertit un tableau de gains en modèle Slint (pour les sliders de l'EQ).
 fn float_model(values: &[f32]) -> ModelRc<f32> {
     ModelRc::from(Rc::new(VecModel::from(values.to_vec())))
+}
+
+/// Convertit une couleur `0xRRGGBB` en couleur Slint.
+fn slint_color(rgb: u32) -> slint::Color {
+    slint::Color::from_rgb_u8(
+        ((rgb >> 16) & 0xff) as u8,
+        ((rgb >> 8) & 0xff) as u8,
+        (rgb & 0xff) as u8,
+    )
 }
 
 fn format_delay(secs: f64) -> SharedString {
