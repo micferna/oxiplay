@@ -77,6 +77,11 @@ pub struct SharedState {
     /// Présence d'un flux audio/vidéo dans le média.
     pub has_audio: AtomicBool,
     pub has_video: AtomicBool,
+    /// Gains de l'égaliseur 10 bandes (dB), lus par le graphe de filtres.
+    pub equalizer: Mutex<[f32; 10]>,
+    /// Compteur incrémenté à chaque modification de l'égaliseur : permet au
+    /// thread audio de détecter un changement et de reconstruire le graphe.
+    pub eq_generation: AtomicU64,
 }
 
 impl Default for SharedState {
@@ -101,6 +106,8 @@ impl Default for SharedState {
             error: Mutex::new(None),
             has_audio: AtomicBool::new(false),
             has_video: AtomicBool::new(false),
+            equalizer: Mutex::new([0.0; 10]),
+            eq_generation: AtomicU64::new(0),
         }
     }
 }
@@ -108,6 +115,26 @@ impl Default for SharedState {
 impl SharedState {
     pub fn speed(&self) -> f64 {
         self.speed_milli.load(Ordering::Relaxed) as f64 / 1000.0
+    }
+
+    /// Gains courants de l'égaliseur (dB).
+    pub fn equalizer_gains(&self) -> [f32; 10] {
+        *self.equalizer.lock().unwrap()
+    }
+
+    /// Remplace tous les gains de l'égaliseur et invalide le graphe audio.
+    pub fn set_equalizer(&self, gains: [f32; 10]) {
+        *self.equalizer.lock().unwrap() = gains;
+        self.eq_generation.fetch_add(1, Ordering::Release);
+    }
+
+    /// Modifie le gain d'une bande (dB, borné à ±12) et invalide le graphe.
+    pub fn set_equalizer_band(&self, band: usize, gain_db: f32) {
+        if band >= 10 {
+            return;
+        }
+        self.equalizer.lock().unwrap()[band] = gain_db.clamp(-12.0, 12.0);
+        self.eq_generation.fetch_add(1, Ordering::Release);
     }
 
     pub fn set_speed(&self, speed: f64) {

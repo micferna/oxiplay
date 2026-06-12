@@ -4,6 +4,19 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ;
 le projet suit [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+### Ajouté
+- **Vitesse de lecture sans changement de hauteur** : le contrôle 0.25×–4×
+  passe par un graphe libavfilter (`atempo`, chaîné pour couvrir toute la
+  plage) au lieu du rééchantillonnage — la voix n'est plus transposée.
+- **Égaliseur audio 10 bandes** (31 Hz → 16 kHz) : filtres `equalizer`
+  libavfilter, panneau d'interface avec sliders verticaux, gains persistés.
+
+### Modifié
+- Pipeline audio refondu autour d'un graphe de filtres (égaliseur → atempo →
+  conversion), reconstruit à la volée quand la vitesse ou les gains changent.
+
 ## [0.1.0] — 2026-06-12
 
 Première version publique (MVP).

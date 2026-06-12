@@ -78,6 +78,66 @@ component SeekBar inherits Rectangle {
     }
 }
 
+// Une bande verticale de l'égaliseur (gain -12..+12 dB).
+component EqBand inherits VerticalLayout {
+    in property <string> freq;
+    in property <float> gain;
+    in property <bool> dark: true;
+    callback changed(float);
+
+    spacing: 4px;
+
+    Text {
+        text: "\{round(root.gain)}";
+        color: root.dark ? #9aa3af : #5b6573;
+        font-size: 10px;
+        horizontal-alignment: center;
+    }
+    track := Rectangle {
+        horizontal-stretch: 1;
+        vertical-stretch: 1;
+        min-height: 90px;
+        // Rail.
+        Rectangle {
+            width: 4px;
+            height: parent.height;
+            background: root.dark ? #3a414c : #c5cad2;
+            border-radius: 2px;
+        }
+        // Repère du 0 dB.
+        Rectangle {
+            width: 14px;
+            height: 2px;
+            y: parent.height / 2 - 1px;
+            background: root.dark ? #555d68 : #aeb4bd;
+        }
+        // Curseur : 12 dB en haut, -12 dB en bas.
+        Rectangle {
+            width: 22px;
+            height: 10px;
+            y: (parent.height - self.height) * (1 - (root.gain + 12) / 24);
+            background: #ff8a3d;
+            border-radius: 5px;
+        }
+        ta := TouchArea {
+            moved => {
+                if (self.pressed) {
+                    root.changed(12 - (self.mouse-y / parent.height) * 24);
+                }
+            }
+            clicked => {
+                root.changed(12 - (self.mouse-y / parent.height) * 24);
+            }
+        }
+    }
+    Text {
+        text: root.freq;
+        color: root.dark ? #9aa3af : #5b6573;
+        font-size: 10px;
+        horizontal-alignment: center;
+    }
+}
+
 export component MainWindow inherits Window {
     title: "OxiPlay";
     preferred-width: 1180px;
@@ -112,6 +172,9 @@ export component MainWindow inherits Window {
     in-out property <bool> playlist-visible: true;
     in property <string> sub-delay-text: "0.0 s";
     in property <bool> fullscreen: false;
+    in property <[string]> eq-frequencies: [];
+    in-out property <[float]> eq-gains: [];
+    in-out property <bool> eq-visible: false;
 
     // ---- Callbacks vers Rust --------------------------------------------
     callback play-pause();
@@ -137,6 +200,8 @@ export component MainWindow inherits Window {
     callback load-subtitle-file();
     callback sub-delay-adjust(float); // ± secondes
     callback toggle-theme();
+    callback eq-band-changed(int, float); // bande, gain dB
+    callback eq-reset();
 
     property <color> fg: root.dark ? #e8eaed : #1c1e21;
     property <color> fg-dim: root.dark ? #9aa3af : #5b6573;
@@ -181,6 +246,12 @@ export component MainWindow inherits Window {
                     ToolButton { text: "📡"; dark: root.dark; clicked => { root.open-url(url-input.text); url-input.text = ""; } }
                     ToolButton { text: "💬"; dark: root.dark; clicked => { root.load-subtitle-file(); } }
                     ToolButton { text: "📷"; dark: root.dark; clicked => { root.take-screenshot(); } }
+                    ToolButton {
+                        text: "🎛";
+                        dark: root.dark;
+                        active: root.eq-visible;
+                        clicked => { root.eq-visible = !root.eq-visible; }
+                    }
                     ToolButton { text: root.dark ? "☀" : "🌙"; dark: root.dark; clicked => { root.toggle-theme(); } }
                     ToolButton {
                         text: "☰";
@@ -241,6 +312,50 @@ export component MainWindow inherits Window {
                     TouchArea {
                         clicked => { root.play-pause(); }
                         double-clicked => { root.toggle-fullscreen(); }
+                    }
+
+                    // Panneau égaliseur flottant (au-dessus de la vidéo).
+                    if root.eq-visible: Rectangle {
+                        x: parent.width - self.width - 16px;
+                        y: 16px;
+                        width: 372px;
+                        height: 232px;
+                        background: root.dark ? #11151aF2 : #fafbfcF2;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: root.dark ? #2c333d : #d8dce2;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 6px;
+
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: "Égaliseur (dB)";
+                                    color: root.fg;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                ToolButton { text: "⟲"; tip: "À plat"; dark: root.dark; clicked => { root.eq-reset(); } }
+                                ToolButton { text: "✕"; dark: root.dark; clicked => { root.eq-visible = false; } }
+                            }
+                            HorizontalLayout {
+                                vertical-stretch: 1;
+                                spacing: 2px;
+                                for gain[idx] in root.eq-gains: EqBand {
+                                    horizontal-stretch: 1;
+                                    dark: root.dark;
+                                    gain: gain;
+                                    freq: idx < root.eq-frequencies.length ? root.eq-frequencies[idx] : "";
+                                    changed(g) => {
+                                        root.eq-gains[idx] = g;
+                                        root.eq-band-changed(idx, g);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

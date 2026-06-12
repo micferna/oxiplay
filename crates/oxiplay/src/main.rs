@@ -90,4 +90,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_sub_delay_adjust, |a, delta: f32| a
         .adjust_subtitle_delay(delta));
     on!(on_toggle_theme, |a| a.toggle_theme());
+    on!(on_eq_band_changed, |a, band: i32, gain: f32| a
+        .set_equalizer_band(band, gain));
+    on!(on_eq_reset, |a| a.reset_equalizer());
 }

@@ -74,6 +74,19 @@ impl App {
             ui.set_volume(app.settings.volume);
             ui.set_dark(app.settings.dark_theme);
             ui.set_sub_delay_text(format_delay(app.sub_delay_secs));
+            ui.set_eq_frequencies(string_model(
+                crate::decoder::EQ_FREQUENCIES
+                    .iter()
+                    .map(|f| {
+                        if *f >= 1000 {
+                            format!("{}k", f / 1000)
+                        } else {
+                            f.to_string()
+                        }
+                    })
+                    .collect(),
+            ));
+            ui.set_eq_gains(float_model(&app.settings.equalizer_gains));
         }
         app
     }
@@ -109,6 +122,7 @@ impl App {
         engine.set_muted(self.muted);
         engine.set_speed(SPEEDS[self.speed_index as usize]);
         engine.set_subtitle_delay(self.sub_delay_secs);
+        engine.set_equalizer(self.settings.equalizer_gains);
 
         self.engine = Some(engine);
         self.current_source = Some(source.to_string());
@@ -462,6 +476,33 @@ impl App {
         }
     }
 
+    // ---- Égaliseur --------------------------------------------------------
+
+    /// Modifie le gain d'une bande de l'égaliseur (dB), l'applique en direct
+    /// et le persiste.
+    pub fn set_equalizer_band(&mut self, band: i32, gain_db: f32) {
+        let band = band.max(0) as usize;
+        if band >= 10 {
+            return;
+        }
+        let gain = gain_db.clamp(-12.0, 12.0);
+        self.settings.equalizer_gains[band] = gain;
+        if let Some(engine) = &self.engine {
+            engine.set_equalizer_band(band, gain);
+        }
+    }
+
+    /// Remet l'égaliseur à plat (toutes les bandes à 0 dB).
+    pub fn reset_equalizer(&mut self) {
+        self.settings.equalizer_gains = [0.0; 10];
+        if let Some(engine) = &self.engine {
+            engine.set_equalizer([0.0; 10]);
+        }
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_eq_gains(float_model(&self.settings.equalizer_gains));
+        }
+    }
+
     // ---- Rafraîchissement périodique ---------------------------------------
 
     /// Appelé ~10×/s par le minuteur Slint : synchronise l'interface avec
@@ -572,6 +613,11 @@ fn string_model(items: Vec<String>) -> ModelRc<SharedString> {
 
 fn track_labels(tracks: &[TrackInfo]) -> ModelRc<SharedString> {
     string_model(tracks.iter().enumerate().map(|(i, t)| t.label(i)).collect())
+}
+
+/// Convertit un tableau de gains en modèle Slint (pour les sliders de l'EQ).
+fn float_model(values: &[f32]) -> ModelRc<f32> {
+    ModelRc::from(Rc::new(VecModel::from(values.to_vec())))
 }
 
 fn format_delay(secs: f64) -> SharedString {

@@ -186,9 +186,20 @@ impl PlayerEngine {
         self.seek(target);
     }
 
-    /// Vitesse de lecture (0.25 à 4.0).
+    /// Vitesse de lecture (0.25 à 4.0). La hauteur est préservée (filtre
+    /// `atempo` du graphe audio).
     pub fn set_speed(&self, speed: f64) {
         self.shared.set_speed(speed);
+    }
+
+    /// Remplace les 10 gains de l'égaliseur (dB).
+    pub fn set_equalizer(&self, gains: [f32; 10]) {
+        self.shared.set_equalizer(gains);
+    }
+
+    /// Modifie le gain d'une bande de l'égaliseur (dB).
+    pub fn set_equalizer_band(&self, band: usize, gain_db: f32) {
+        self.shared.set_equalizer_band(band, gain_db);
     }
 
     /// Volume 0.0 à 1.25.

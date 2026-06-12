@@ -77,12 +77,12 @@ ou lancez l'interface et utilisez 📂 (fichiers), le champ URL (réseau),
 
 ## État du projet & feuille de route
 
-MVP fonctionnel. Prochaines étapes (voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) :
+MVP fonctionnel. Fonctionnalités avancées (voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) :
 
+- [x] **Vitesse sans changement de hauteur** (filtre `atempo`)
+- [x] **Égaliseur audio 10 bandes** (libavfilter, UI + persistance)
 - [ ] Accélération matérielle (VAAPI, NVDEC, VideoToolbox, D3D11VA)
 - [ ] Rendu wgpu zéro copie (textures YUV + shader) pour le 4K/HDR
-- [ ] Vitesse sans changement de hauteur (filtre `atempo`)
-- [ ] Égaliseur audio 10 bandes, filtres vidéo
 - [ ] Sous-titres bitmap (PGS/DVD), rendu stylé libass
 - [ ] Mini-lecteur / Picture-in-Picture
 

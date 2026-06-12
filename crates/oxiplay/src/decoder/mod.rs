@@ -20,10 +20,12 @@
 //! les seeks réactifs même pipeline plein.
 
 mod audio;
+mod audio_filter;
 mod demux;
 mod video;
 
 pub use audio::run_audio_decoder;
+pub use audio_filter::EQ_FREQUENCIES;
 pub use demux::{run_demux, DemuxConfig};
 pub use video::run_video_decoder;
 
