@@ -5,6 +5,9 @@
 //! d'un fichier externe chargé manuellement ou d'un flux embarqué décodé
 //! par le demuxeur (voir [`crate::decoder`]).
 
+pub mod bitmap;
+pub use bitmap::{BitmapSubtitle, BitmapSubtitleTrack};
+
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 

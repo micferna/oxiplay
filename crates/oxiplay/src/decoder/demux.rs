@@ -272,6 +272,7 @@ fn handle_command(
             st.subtitle_stream = selection;
             st.subtitle_decoder = None;
             *st.shared.embedded_subtitles.lock().unwrap() = SubtitleTrack::default();
+            st.shared.bitmap_subtitles.lock().unwrap().clear();
             if let Some(idx) = selection {
                 if let Some(stream) = ictx.stream(idx) {
                     match ffmpeg::codec::context::Context::from_parameters(stream.parameters())
@@ -317,6 +318,7 @@ fn perform_seek(
     st.shared.demux_eof.store(false, Ordering::Relaxed);
     st.shared.video_done.store(false, Ordering::Relaxed);
     st.shared.audio_done.store(false, Ordering::Relaxed);
+    st.shared.bitmap_subtitles.lock().unwrap().clear();
     st.shared.clock.set_position(target);
 
     let _ = st.video_tx.send(PacketMsg::Flush);
@@ -454,14 +456,20 @@ fn decode_subtitle(st: &mut DemuxState, packet: &ffmpeg::Packet, time_base: ffmp
         DEFAULT_SUB_DURATION_US
     };
 
+    let end_us = start_us + duration_us;
     let mut text_parts: Vec<String> = Vec::new();
     for rect in subtitle.rects() {
         match rect {
             ffmpeg::subtitle::Rect::Text(t) => text_parts.push(t.get().to_string()),
             ffmpeg::subtitle::Rect::Ass(a) => text_parts.push(embedded_ass_to_text(a.get())),
-            // Sous-titres bitmap (DVD/PGS) : nécessitent un rendu image,
-            // prévu avec la voie wgpu (voir ARCHITECTURE.md).
-            _ => {}
+            // Sous-titres image (PGS/DVD) : convertis en RGBA et incrustés
+            // sur la vidéo (voir crate::subtitles::bitmap).
+            ffmpeg::subtitle::Rect::Bitmap(b) => {
+                if let Some(sub) = bitmap_rect_to_subtitle(&b, start_us, end_us) {
+                    st.shared.bitmap_subtitles.lock().unwrap().insert(sub);
+                }
+            }
+            ffmpeg::subtitle::Rect::None(_) => {}
         }
     }
     let text = text_parts.join("\n").trim().to_string();
@@ -475,7 +483,70 @@ fn decode_subtitle(st: &mut DemuxState, packet: &ffmpeg::Packet, time_base: ffmp
         .unwrap()
         .insert(SubtitleCue {
             start_us,
-            end_us: start_us + duration_us,
+            end_us,
             text,
         });
+}
+
+/// Convertit un rectangle de sous-titre image (palettisé, `AV_PIX_FMT_PAL8`)
+/// en bitmap RGBA prêt à incruster.
+///
+/// FFmpeg ne fournit pas d'accès sûr aux pixels/palette : on lit le
+/// `AVSubtitleRect` brut. `data[0]` contient un indice de palette par pixel
+/// (stride `linesize[0]`), `data[1]` la palette de `nb_colors` entrées au
+/// format `AV_PIX_FMT_RGB32` (0xAARRGGBB en ordre natif).
+fn bitmap_rect_to_subtitle(
+    bitmap: &ffmpeg::subtitle::Bitmap,
+    start_us: i64,
+    end_us: i64,
+) -> Option<crate::subtitles::BitmapSubtitle> {
+    let (width, height) = (bitmap.width(), bitmap.height());
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    // SAFETY : `as_ptr` est un AVSubtitleRect valide tant que le Subtitle
+    // parent vit ; on ne lit que ses champs PAL8 documentés, dans les bornes
+    // données par width/height/linesize/nb_colors.
+    let (x, y, rgba) = unsafe {
+        let raw = bitmap.as_ptr();
+        let indices = (*raw).data[0];
+        let palette = (*raw).data[1] as *const u32;
+        let stride = (*raw).linesize[0];
+        let nb_colors = (*raw).nb_colors.max(0) as usize;
+        if indices.is_null() || palette.is_null() || stride <= 0 || nb_colors == 0 {
+            return None;
+        }
+        let mut rgba = vec![0u8; (width * height * 4) as usize];
+        for row in 0..height as usize {
+            let line = indices.add(row * stride as usize);
+            for col in 0..width as usize {
+                let idx = (*line.add(col)) as usize;
+                if idx >= nb_colors {
+                    continue;
+                }
+                let argb = *palette.add(idx);
+                let a = ((argb >> 24) & 0xff) as u8;
+                let r = ((argb >> 16) & 0xff) as u8;
+                let g = ((argb >> 8) & 0xff) as u8;
+                let b = (argb & 0xff) as u8;
+                let o = (row * width as usize + col) * 4;
+                rgba[o] = r;
+                rgba[o + 1] = g;
+                rgba[o + 2] = b;
+                rgba[o + 3] = a;
+            }
+        }
+        (bitmap.x() as u32, bitmap.y() as u32, rgba)
+    };
+
+    Some(crate::subtitles::BitmapSubtitle {
+        start_us,
+        end_us,
+        x,
+        y,
+        width,
+        height,
+        rgba,
+    })
 }

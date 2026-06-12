@@ -5,7 +5,7 @@
 //! atomiques pour les scalaires, mutex courts pour le reste.
 
 use crate::player::clock::PlaybackClock;
-use crate::subtitles::SubtitleTrack;
+use crate::subtitles::{BitmapSubtitleTrack, SubtitleTrack};
 use crate::video::VideoFrameData;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -68,6 +68,8 @@ pub struct SharedState {
     pub external_subtitles: Mutex<Option<SubtitleTrack>>,
     /// Répliques décodées depuis la piste embarquée sélectionnée.
     pub embedded_subtitles: Mutex<SubtitleTrack>,
+    /// Sous-titres image (PGS/DVD) à incruster sur la vidéo.
+    pub bitmap_subtitles: Mutex<BitmapSubtitleTrack>,
     /// Pistes audio disponibles.
     pub audio_tracks: Mutex<Vec<TrackInfo>>,
     /// Pistes de sous-titres embarquées disponibles.
@@ -101,6 +103,7 @@ impl Default for SharedState {
             subtitle_delay_us: AtomicI64::new(0),
             external_subtitles: Mutex::new(None),
             embedded_subtitles: Mutex::new(SubtitleTrack::default()),
+            bitmap_subtitles: Mutex::new(BitmapSubtitleTrack::default()),
             audio_tracks: Mutex::new(Vec::new()),
             subtitle_tracks: Mutex::new(Vec::new()),
             error: Mutex::new(None),

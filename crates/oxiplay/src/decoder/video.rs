@@ -126,13 +126,14 @@ fn drain_frames(
 ) {
     let mut decoded = ffmpeg::frame::Video::empty();
     while decoder.receive_frame(&mut decoded).is_ok() {
-        let frame = match convert_frame(&decoded, scaler, time_base, last_pts_us) {
+        let mut frame = match convert_frame(&decoded, scaler, time_base, last_pts_us) {
             Ok(f) => f,
             Err(e) => {
                 log::warn!("conversion d'image échouée : {e}");
                 continue;
             }
         };
+        composite_bitmap_subtitles(shared, &mut frame);
         let mut msg = Some(VideoFrameMsg::Frame {
             frame: Arc::new(frame),
             generation,
@@ -149,6 +150,24 @@ fn drain_frames(
             }
         }
     }
+}
+
+/// Incruste les sous-titres image (PGS/DVD) actifs sur l'image, en tenant
+/// compte du décalage utilisateur des sous-titres.
+fn composite_bitmap_subtitles(shared: &Arc<SharedState>, frame: &mut VideoFrameData) {
+    let bitmaps = shared.bitmap_subtitles.lock().unwrap();
+    if bitmaps.is_empty() {
+        return;
+    }
+    let delay = shared
+        .subtitle_delay_us
+        .load(std::sync::atomic::Ordering::Relaxed);
+    bitmaps.composite_active(
+        &mut frame.pixels,
+        frame.width,
+        frame.height,
+        frame.pts_us - delay,
+    );
 }
 
 /// Convertit une image décodée (généralement YUV) en RGBA8 compact.
