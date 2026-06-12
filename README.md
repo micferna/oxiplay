@@ -27,7 +27,9 @@ Objectif : un concurrent open source de VLC, propre, modulaire et performant.
 - Lecture / pause / stop, avance & retour rapides (±10 s)
 - Vitesse **0.25× à 4×**, volume, sourdine
 - **Plein écran** (double-clic ou `F`), **capture d'écran** PNG (`S`)
-- Raccourcis : `Espace` lecture/pause, `←`/`→` seek, `↑`/`↓` volume, `M` muet
+- **Mini-lecteur** (fenêtre compacte avec contrôles flottants)
+- Raccourcis : `Espace` lecture/pause, `←`/`→` seek, `↑`/`↓` volume, `M` muet,
+  `F` plein écran, `P` mini-lecteur, `S` capture
 
 ### Playlist
 - Ajout (multi-sélection), suppression, réorganisation (▲/▼)
@@ -85,9 +87,10 @@ MVP fonctionnel. Fonctionnalités avancées (voir [docs/ARCHITECTURE.md](docs/AR
 - [x] **Rendu stylé ASS** (alignement, gras, italique, couleur — natif)
 - [x] **Accélération matérielle** (VAAPI, NVDEC/CUDA, VideoToolbox, D3D11VA,
       DXVA2, VDPAU) avec repli logiciel automatique
+- [x] **Mini-lecteur** (fenêtre compacte, contrôles flottants — touche `P`)
 - [ ] Rendu wgpu zéro copie (textures YUV + shader) pour le 4K/HDR
 - [ ] libass complet (polices embarquées, karaoké, transformations)
-- [ ] Mini-lecteur / Picture-in-Picture
+- [ ] Always-on-top du mini-lecteur (dépend du backend de fenêtrage)
 
 ## Contribuer
 

@@ -176,6 +176,7 @@ export component MainWindow inherits Window {
     in-out property <bool> playlist-visible: true;
     in property <string> sub-delay-text: "0.0 s";
     in property <bool> fullscreen: false;
+    in-out property <bool> mini: false;
     in property <[string]> eq-frequencies: [];
     in-out property <[float]> eq-gains: [];
     in-out property <bool> eq-visible: false;
@@ -206,6 +207,10 @@ export component MainWindow inherits Window {
     callback toggle-theme();
     callback eq-band-changed(int, float); // bande, gain dB
     callback eq-reset();
+    callback toggle-mini();
+
+    // Chrome (barres, playlist) masqué en plein écran ou en mini-lecteur.
+    property <bool> chrome-hidden: root.fullscreen || root.mini;
 
     property <color> fg: root.dark ? #e8eaed : #1c1e21;
     property <color> fg-dim: root.dark ? #9aa3af : #5b6573;
@@ -218,6 +223,7 @@ export component MainWindow inherits Window {
             if (event.text == "f" || event.text == "F") { root.toggle-fullscreen(); return accept; }
             if (event.text == "m" || event.text == "M") { root.toggle-mute(); return accept; }
             if (event.text == "s" || event.text == "S") { root.take-screenshot(); return accept; }
+            if (event.text == "p" || event.text == "P") { root.toggle-mini(); return accept; }
             if (event.text == Key.RightArrow) { root.seek-relative(10); return accept; }
             if (event.text == Key.LeftArrow) { root.seek-relative(-10); return accept; }
             if (event.text == Key.UpArrow) { root.volume-changed(min(1.25, root.volume + 0.05)); return accept; }
@@ -230,7 +236,7 @@ export component MainWindow inherits Window {
             spacing: 0;
 
             // ---- Barre d'outils -----------------------------------------
-            if !root.fullscreen: Rectangle {
+            if !root.chrome-hidden: Rectangle {
                 height: 44px;
                 background: root.panel;
 
@@ -256,6 +262,7 @@ export component MainWindow inherits Window {
                         active: root.eq-visible;
                         clicked => { root.eq-visible = !root.eq-visible; }
                     }
+                    ToolButton { text: "🗗"; tip: "Mini-lecteur"; dark: root.dark; clicked => { root.toggle-mini(); } }
                     ToolButton { text: root.dark ? "☀" : "🌙"; dark: root.dark; clicked => { root.toggle-theme(); } }
                     ToolButton {
                         text: "☰";
@@ -374,10 +381,33 @@ export component MainWindow inherits Window {
                             }
                         }
                     }
+
+                    // Contrôles flottants du mini-lecteur (apparaissent au survol).
+                    if root.mini: mini-bar := Rectangle {
+                        x: (parent.width - self.width) / 2;
+                        y: parent.height - self.height - 10px;
+                        width: 168px;
+                        height: 40px;
+                        border-radius: 8px;
+                        background: mini-hover.has-hover ? #000000d0 : #00000060;
+                        opacity: mini-hover.has-hover ? 1.0 : 0.5;
+
+                        mini-hover := TouchArea {
+                            HorizontalLayout {
+                                alignment: center;
+                                padding: 4px;
+                                spacing: 4px;
+                                ToolButton { text: "⏮"; dark: true; clicked => { root.previous-item(); } }
+                                ToolButton { text: root.playing ? "⏸" : "▶"; dark: true; clicked => { root.play-pause(); } }
+                                ToolButton { text: "⏭"; dark: true; clicked => { root.next-item(); } }
+                                ToolButton { text: "🗖"; tip: "Quitter le mini-lecteur"; dark: true; clicked => { root.toggle-mini(); } }
+                            }
+                        }
+                    }
                 }
 
                 // Panneau playlist.
-                if root.playlist-visible && !root.fullscreen: Rectangle {
+                if root.playlist-visible && !root.chrome-hidden: Rectangle {
                     width: 290px;
                     background: root.panel;
 
@@ -433,7 +463,7 @@ export component MainWindow inherits Window {
             }
 
             // ---- Barre de progression ------------------------------------
-            Rectangle {
+            if !root.mini: Rectangle {
                 height: 28px;
                 background: root.panel;
                 HorizontalLayout {
@@ -464,7 +494,7 @@ export component MainWindow inherits Window {
             }
 
             // ---- Contrôles ------------------------------------------------
-            Rectangle {
+            if !root.mini: Rectangle {
                 height: 52px;
                 background: root.panel;
 

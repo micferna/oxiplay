@@ -24,6 +24,9 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   automatique du meilleur périphérique, rapatriement des trames GPU vers le
   pipeline RGBA, et **repli logiciel transparent** si aucune accélération
   n'est disponible. Désactivable via `OXIPLAY_NO_HWACCEL=1`.
+- **Mini-lecteur** (équivalent bureau du Picture-in-Picture) : fenêtre
+  compacte sans habillage avec contrôles flottants au survol (précédent,
+  lecture/pause, suivant, retour), basculable par bouton ou la touche `P`.
 
 ### Modifié
 - Pipeline audio refondu autour d'un graphe de filtres (égaliseur → atempo →

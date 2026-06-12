@@ -44,6 +44,8 @@ pub struct App {
     sub_delay_secs: f64,
     muted: bool,
     speed_index: i32,
+    /// Taille de fenêtre (logique) avant le passage en mini-lecteur.
+    pre_mini_size: Option<(f32, f32)>,
 }
 
 impl App {
@@ -68,6 +70,7 @@ impl App {
             sub_delay_secs: settings.subtitle_delay_secs as f64,
             muted: false,
             speed_index: SPEED_NORMAL_INDEX,
+            pre_mini_size: None,
             settings,
         };
         if let Some(ui) = app.ui.upgrade() {
@@ -282,6 +285,28 @@ impl App {
             ui.window().set_fullscreen(fullscreen);
             ui.set_fullscreen(fullscreen);
         }
+    }
+
+    /// Bascule le mini-lecteur : fenêtre compacte sans habillage (équivalent
+    /// bureau du Picture-in-Picture). Slint n'expose pas l'« always-on-top »
+    /// dans son API publique ; on fournit la fenêtre réduite.
+    pub fn toggle_mini(&mut self) {
+        let Some(ui) = self.ui.upgrade() else { return };
+        let entering = !ui.get_mini();
+        if entering {
+            // Mémorise la taille courante pour la restaurer ensuite.
+            let size = ui.window().size();
+            let scale = ui.window().scale_factor().max(0.1);
+            self.pre_mini_size = Some((size.width as f32 / scale, size.height as f32 / scale));
+            if ui.get_fullscreen() {
+                ui.window().set_fullscreen(false);
+                ui.set_fullscreen(false);
+            }
+            ui.window().set_size(slint::LogicalSize::new(420.0, 248.0));
+        } else if let Some((w, h)) = self.pre_mini_size.take() {
+            ui.window().set_size(slint::LogicalSize::new(w, h));
+        }
+        ui.set_mini(entering);
     }
 
     pub fn take_screenshot(&mut self) {

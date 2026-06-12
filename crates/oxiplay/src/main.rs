@@ -93,4 +93,5 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_eq_band_changed, |a, band: i32, gain: f32| a
         .set_equalizer_band(band, gain));
     on!(on_eq_reset, |a| a.reset_equalizer());
+    on!(on_toggle_mini, |a| a.toggle_mini());
 }
