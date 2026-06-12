@@ -54,10 +54,10 @@ deuxième).
 |---------------|------|-----------|
 | `app/`        | Couche application : relie moteur, playlist, paramètres, UI | tous |
 | `player/`     | Moteur : threads, horloge (`clock.rs`), état partagé (`state.rs`), présentation | decoder, audio, video |
-| `decoder/`    | Demuxage (`demux.rs`), décodage vidéo (`video.rs`) et audio (`audio.rs`) via ffmpeg-next | subtitles, streaming, video |
+| `decoder/`    | Demuxage (`demux.rs`), décodage vidéo (`video.rs`) + accélération matérielle (`hwaccel.rs`), décodage audio (`audio.rs`) + graphe de filtres (`audio_filter.rs`) via ffmpeg-the-third | subtitles, streaming, video |
 | `audio/`      | Sortie cpal, file d'échantillons, volume, horloge | player::state |
 | `video/`      | Types d'images décodées, capture d'écran PNG | — |
-| `subtitles/`  | Parseurs SRT/VTT/ASS/SSA, requêtes par temps | — |
+| `subtitles/`  | Parseurs SRT/VTT/ASS/SSA + style (`mod.rs`), sous-titres image PGS/DVD (`bitmap.rs`) | — |
 | `playlist/`   | Modèle de liste, M3U | streaming, utils |
 | `streaming/`  | Classification d'URL, options libavformat par protocole | — |
 | `settings/`   | Persistance JSON : volume, thème, historique, reprise | — |
@@ -103,9 +103,10 @@ alternative crédible mais son écosystème widgets/plateformes est moins mûr.
   traitement. C'est ce qui rend les seeks instantanés pipeline plein, sans
   vidage compliqué des canaux, et qui évite les deadlocks seek-en-pause
   (le présentateur draine les images périmées même en pause).
-- **Vitesse** : l'horloge est mise à l'échelle, et l'audio est rééchantillonné
-  vers `taux_périphérique / vitesse` (la hauteur change ; un filtre `atempo`
-  préservant la hauteur est prévu via libavfilter).
+- **Vitesse** : l'horloge est mise à l'échelle, et l'audio passe par un graphe
+  libavfilter (`audio_filter.rs`) `atempo` qui étire le temps **sans changer
+  la hauteur** (chaîné pour couvrir 0.25–4×). Le même graphe héberge
+  l'**égaliseur 10 bandes** (`equalizer`) et la conversion finale (`aformat`).
 
 ### Pourquoi pas Tokio (pour l'instant)
 
@@ -131,14 +132,20 @@ tone-mapping HDR) dans un shader, intégré à la scène Slint via son API
 `VideoFrameData` opaques via `FrameSink`) permet ce changement sans toucher
 au pipeline.
 
-### Accélération matérielle (feuille de route)
+### Accélération matérielle (implémentée — `decoder/hwaccel.rs`)
 
-`decoder/video.rs` est le seul point à modifier : demander à libavcodec un
-`hw_device_ctx` (VAAPI sous Linux, D3D11VA/DXVA2 sous Windows, VideoToolbox
-sous macOS, NVDEC via CUDA), recevoir des trames GPU (`AV_PIX_FMT_VAAPI`…),
-et soit les rapatrier (`av_hwframe_transfer_data`, déjà compatible avec le
-rendu actuel), soit les passer directement à la voie wgpu. L'API ffmpeg-next
-n'expose pas tout ; quelques appels `ffi::` ciblés seront nécessaires.
+`ffmpeg-the-third` n'expose pas l'API hwaccel : on configure directement
+l'`AVCodecContext` en FFI **avant ouverture** (création d'un `hw_device_ctx`
++ callback `get_format` sélectionnant le format matériel), puis on rapatrie
+les trames GPU avec `av_hwframe_transfer_data` vers le pipeline RGBA existant.
+Les types de périphériques sont essayés par ordre de préférence selon la
+plateforme (VAAPI/CUDA/VDPAU sous Linux, D3D11VA/DXVA2/CUDA sous Windows,
+VideoToolbox sous macOS). **Repli logiciel automatique** si aucun n'est
+disponible ; le callback `get_format` retombe lui-même sur un format logiciel
+si le format matériel n'est pas retenu. Désactivable via `OXIPLAY_NO_HWACCEL`.
+
+Évolution prévue : passer les surfaces GPU directement à la voie wgpu
+(ci-dessus) pour éviter l'aller-retour mémoire, en particulier en 4K/HDR.
 
 ## Flux d'un seek (exemple de bout en bout)
 
