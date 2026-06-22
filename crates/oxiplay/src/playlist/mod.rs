@@ -21,6 +21,38 @@ impl PlaylistItem {
     }
 }
 
+/// Mode de répétition de la lecture, cyclé par l'utilisateur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RepeatMode {
+    /// Aucune répétition : s'arrête en fin de liste.
+    #[default]
+    Off,
+    /// Répète toute la liste (boucle au début après la dernière entrée).
+    All,
+    /// Répète indéfiniment le média courant.
+    One,
+}
+
+impl RepeatMode {
+    /// Mode suivant dans le cycle Off → Tous → Un → Off.
+    pub fn cycled(self) -> Self {
+        match self {
+            RepeatMode::Off => RepeatMode::All,
+            RepeatMode::All => RepeatMode::One,
+            RepeatMode::One => RepeatMode::Off,
+        }
+    }
+
+    /// Index pour l'interface (0 = Off, 1 = Tous, 2 = Un).
+    pub fn as_index(self) -> i32 {
+        match self {
+            RepeatMode::Off => 0,
+            RepeatMode::All => 1,
+            RepeatMode::One => 2,
+        }
+    }
+}
+
 /// Playlist ordonnée avec un curseur de lecture.
 #[derive(Debug, Default)]
 pub struct Playlist {
@@ -211,6 +243,18 @@ mod tests {
         assert_eq!(p.current_index(), Some(0));
         p.shift(0, -1); // hors limites : sans effet
         assert_eq!(p.current_index(), Some(0));
+    }
+
+    #[test]
+    fn repeat_mode_cycles() {
+        assert_eq!(RepeatMode::default(), RepeatMode::Off);
+        assert_eq!(RepeatMode::Off.cycled(), RepeatMode::All);
+        assert_eq!(RepeatMode::All.cycled(), RepeatMode::One);
+        assert_eq!(RepeatMode::One.cycled(), RepeatMode::Off);
+        assert_eq!(
+            [RepeatMode::Off, RepeatMode::All, RepeatMode::One].map(RepeatMode::as_index),
+            [0, 1, 2]
+        );
     }
 
     #[test]

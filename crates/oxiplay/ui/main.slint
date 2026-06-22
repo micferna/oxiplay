@@ -158,6 +158,7 @@ export component MainWindow inherits Window {
     in property <bool> subtitle-bold: false;
     in property <bool> subtitle-italic: false;
     in property <color> subtitle-color: #ffffff;
+    in-out property <float> subtitle-scale: 1.0;
     in property <float> progress: 0.0;
     in property <bool> seekable: true;
     in property <string> position-text: "0:00";
@@ -169,17 +170,30 @@ export component MainWindow inherits Window {
     in property <[PlaylistEntry]> playlist-entries: [];
     in property <[string]> audio-tracks: [];
     in property <[string]> subtitle-tracks: [];
+    in property <[string]> recent-files: [];
+    in property <[string]> chapters: [];
     in-out property <int> audio-track-index: 0;
     in-out property <int> subtitle-track-index: 0;
     in-out property <int> speed-index: 3; // 1.00×
     in-out property <float> volume: 0.8;
     in-out property <bool> playlist-visible: true;
     in property <string> sub-delay-text: "0.0 s";
+    in property <string> audio-delay-text: "0.0 s";
     in property <bool> fullscreen: false;
     in-out property <bool> mini: false;
+    in-out property <int> repeat-mode: 0; // 0 = off, 1 = toute la liste, 2 = média courant
     in property <[string]> eq-frequencies: [];
     in-out property <[float]> eq-gains: [];
     in-out property <bool> eq-visible: false;
+    in property <string> media-info-text: "";
+    in-out property <bool> info-visible: false;
+    in property <string> stats-text: "";
+    in-out property <bool> stats-visible: false;
+    in-out property <bool> subs-visible: false;
+    in-out property <float> img-brightness: 0.0;
+    in-out property <float> img-contrast: 1.0;
+    in-out property <float> img-saturation: 1.0;
+    in-out property <bool> image-visible: false;
 
     // ---- Callbacks vers Rust --------------------------------------------
     callback play-pause();
@@ -189,12 +203,16 @@ export component MainWindow inherits Window {
     callback previous-item();
     callback next-item();
     callback open-files();
+    callback open-bluray();
     callback open-url(string);
+    callback open-recent(int);
     callback volume-changed(float);
     callback toggle-mute();
     callback speed-selected(int);
     callback toggle-fullscreen();
     callback take-screenshot();
+    callback cycle-rotation();
+    callback image-adjust(float, float, float); // luminosité, contraste, saturation
     callback playlist-activate(int);
     callback playlist-remove(int);
     callback playlist-shift(int, int);
@@ -204,10 +222,18 @@ export component MainWindow inherits Window {
     callback subtitle-track-selected(int);
     callback load-subtitle-file();
     callback sub-delay-adjust(float); // ± secondes
+    callback subtitle-scale-adjust(float);
+    callback set-subtitle-color(int); // 0xRRGGBB, ou < 0 = style d'origine
     callback toggle-theme();
     callback eq-band-changed(int, float); // bande, gain dB
     callback eq-reset();
+    callback eq-preset-selected(int);     // index de préréglage
     callback toggle-mini();
+    callback cycle-repeat();
+    callback toggle-stats();
+    callback audio-delay-adjust(float);   // ± secondes
+    callback chapter-selected(int);
+    callback step-frame(bool);            // true = avant, false = arrière
 
     // Chrome (barres, playlist) masqué en plein écran ou en mini-lecteur.
     property <bool> chrome-hidden: root.fullscreen || root.mini;
@@ -224,6 +250,10 @@ export component MainWindow inherits Window {
             if (event.text == "m" || event.text == "M") { root.toggle-mute(); return accept; }
             if (event.text == "s" || event.text == "S") { root.take-screenshot(); return accept; }
             if (event.text == "p" || event.text == "P") { root.toggle-mini(); return accept; }
+            if (event.text == "r" || event.text == "R") { root.cycle-repeat(); return accept; }
+            if (event.text == "h" || event.text == "H") { root.toggle-stats(); return accept; }
+            if (event.text == ".") { root.step-frame(true); return accept; }
+            if (event.text == ",") { root.step-frame(false); return accept; }
             if (event.text == Key.RightArrow) { root.seek-relative(10); return accept; }
             if (event.text == Key.LeftArrow) { root.seek-relative(-10); return accept; }
             if (event.text == Key.UpArrow) { root.volume-changed(min(1.25, root.volume + 0.05)); return accept; }
@@ -248,6 +278,17 @@ export component MainWindow inherits Window {
                     spacing: 6px;
 
                     ToolButton { text: "📂"; dark: root.dark; clicked => { root.open-files(); } }
+                    ToolButton { text: "📀"; tip: "Blu-ray (BDMV)"; dark: root.dark; clicked => { root.open-bluray(); } }
+                    if root.recent-files.length > 0: ComboBox {
+                        width: 132px;
+                        model: root.recent-files;
+                        selected => { root.open-recent(self.current-index); }
+                    }
+                    if root.chapters.length > 0: ComboBox {
+                        width: 168px;
+                        model: root.chapters;
+                        selected => { root.chapter-selected(self.current-index); }
+                    }
                     url-input := LineEdit {
                         placeholder-text: "URL réseau (http, https, hls .m3u8, rtsp)…";
                         horizontal-stretch: 1;
@@ -255,6 +296,7 @@ export component MainWindow inherits Window {
                     }
                     ToolButton { text: "📡"; dark: root.dark; clicked => { root.open-url(url-input.text); url-input.text = ""; } }
                     ToolButton { text: "💬"; dark: root.dark; clicked => { root.load-subtitle-file(); } }
+                    ToolButton { text: "Aa"; tip: "Style sous-titres"; dark: root.dark; active: root.subs-visible; clicked => { root.subs-visible = !root.subs-visible; } }
                     ToolButton { text: "📷"; dark: root.dark; clicked => { root.take-screenshot(); } }
                     ToolButton {
                         text: "🎛";
@@ -262,6 +304,15 @@ export component MainWindow inherits Window {
                         active: root.eq-visible;
                         clicked => { root.eq-visible = !root.eq-visible; }
                     }
+                    ToolButton {
+                        text: "ℹ";
+                        tip: "Infos média";
+                        dark: root.dark;
+                        active: root.info-visible;
+                        clicked => { root.info-visible = !root.info-visible; }
+                    }
+                    ToolButton { text: "⟳"; tip: "Rotation 90°"; dark: root.dark; clicked => { root.cycle-rotation(); } }
+                    ToolButton { text: "🎨"; tip: "Réglages image"; dark: root.dark; active: root.image-visible; clicked => { root.image-visible = !root.image-visible; } }
                     ToolButton { text: "🗗"; tip: "Mini-lecteur"; dark: root.dark; clicked => { root.toggle-mini(); } }
                     ToolButton { text: root.dark ? "☀" : "🌙"; dark: root.dark; clicked => { root.toggle-theme(); } }
                     ToolButton {
@@ -324,7 +375,7 @@ export component MainWindow inherits Window {
                             width: min(self.preferred-width, root.width - 80px);
                             text: root.subtitle-text;
                             color: root.subtitle-color;
-                            font-size: 20px;
+                            font-size: 20px * root.subtitle-scale;
                             font-weight: root.subtitle-bold ? 700 : 400;
                             font-italic: root.subtitle-italic;
                             horizontal-alignment: center;
@@ -343,7 +394,7 @@ export component MainWindow inherits Window {
                         x: parent.width - self.width - 16px;
                         y: 16px;
                         width: 372px;
-                        height: 232px;
+                        height: 276px;
                         background: root.dark ? #11151aF2 : #fafbfcF2;
                         border-radius: 10px;
                         border-width: 1px;
@@ -365,6 +416,11 @@ export component MainWindow inherits Window {
                                 ToolButton { text: "⟲"; tip: "À plat"; dark: root.dark; clicked => { root.eq-reset(); } }
                                 ToolButton { text: "✕"; dark: root.dark; clicked => { root.eq-visible = false; } }
                             }
+                            ComboBox {
+                                height: 26px;
+                                model: ["Préréglage…", "Plat", "Rock", "Pop", "Jazz", "Classique", "Graves+", "Voix"];
+                                selected => { root.eq-preset-selected(self.current-index); }
+                            }
                             HorizontalLayout {
                                 vertical-stretch: 1;
                                 spacing: 2px;
@@ -378,6 +434,171 @@ export component MainWindow inherits Window {
                                         root.eq-band-changed(idx, g);
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // HUD de statistiques (touche H) : coin haut-droit.
+                    if root.stats-visible: Rectangle {
+                        x: parent.width - self.width - 12px;
+                        y: 12px;
+                        width: stats-txt.preferred-width + 16px;
+                        height: stats-txt.preferred-height + 10px;
+                        background: #000000c0;
+                        border-radius: 6px;
+                        stats-txt := Text {
+                            x: 8px;
+                            y: 5px;
+                            text: root.stats-text;
+                            color: #7cfc00;
+                            font-size: 12px;
+                        }
+                    }
+
+                    // Panneau d'informations média (à la demande, touche ℹ).
+                    if root.info-visible: Rectangle {
+                        x: 16px;
+                        y: 16px;
+                        width: 400px;
+                        height: 200px;
+                        background: root.dark ? #11151aF2 : #fafbfcF2;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: root.dark ? #2c333d : #d8dce2;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+                            HorizontalLayout {
+                                Text {
+                                    text: "Informations média";
+                                    color: root.fg;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                ToolButton { text: "✕"; dark: root.dark; clicked => { root.info-visible = false; } }
+                            }
+                            Text {
+                                text: root.media-info-text == "" ? "Aucun média ouvert." : root.media-info-text;
+                                color: root.fg-dim;
+                                wrap: word-wrap;
+                                vertical-stretch: 1;
+                            }
+                        }
+                    }
+
+                    // Panneau de style des sous-titres (taille + couleur).
+                    if root.subs-visible: Rectangle {
+                        x: 16px;
+                        y: 16px;
+                        width: 340px;
+                        height: 156px;
+                        background: root.dark ? #11151aF2 : #fafbfcF2;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: root.dark ? #2c333d : #d8dce2;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 10px;
+                            HorizontalLayout {
+                                Text {
+                                    text: "Sous-titres";
+                                    color: root.fg;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                ToolButton { text: "✕"; dark: root.dark; clicked => { root.subs-visible = false; } }
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Text { text: "Taille"; color: root.fg-dim; vertical-alignment: center; horizontal-stretch: 1; }
+                                ToolButton { text: "−"; dark: root.dark; width: 28px; clicked => { root.subtitle-scale-adjust(-0.1); } }
+                                Text { text: "\{round(root.subtitle-scale * 100)} %"; color: root.fg; vertical-alignment: center; }
+                                ToolButton { text: "+"; dark: root.dark; width: 28px; clicked => { root.subtitle-scale-adjust(0.1); } }
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: "Couleur"; color: root.fg-dim; vertical-alignment: center; horizontal-stretch: 1; }
+                                Rectangle {
+                                    width: 26px; height: 26px; border-radius: 5px; background: #ffffff;
+                                    border-width: 1px; border-color: #888888;
+                                    TouchArea { clicked => { root.set-subtitle-color(16777215); } }
+                                }
+                                Rectangle {
+                                    width: 26px; height: 26px; border-radius: 5px; background: #ffff00;
+                                    TouchArea { clicked => { root.set-subtitle-color(16776960); } }
+                                }
+                                Rectangle {
+                                    width: 26px; height: 26px; border-radius: 5px; background: #00ffff;
+                                    TouchArea { clicked => { root.set-subtitle-color(65535); } }
+                                }
+                                Rectangle {
+                                    width: 26px; height: 26px; border-radius: 5px; background: #00ff00;
+                                    TouchArea { clicked => { root.set-subtitle-color(65280); } }
+                                }
+                                ToolButton { text: "ASS"; tip: "Style d'origine"; dark: root.dark; clicked => { root.set-subtitle-color(-1); } }
+                            }
+                        }
+                    }
+
+                    // Panneau de réglages d'image (luminosité/contraste/saturation).
+                    if root.image-visible: Rectangle {
+                        x: 16px;
+                        y: 16px;
+                        width: 320px;
+                        height: 232px;
+                        background: root.dark ? #11151aF2 : #fafbfcF2;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: root.dark ? #2c333d : #d8dce2;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 6px;
+                            HorizontalLayout {
+                                Text {
+                                    text: "Image";
+                                    color: root.fg;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                ToolButton {
+                                    text: "⟲";
+                                    tip: "Réinitialiser";
+                                    dark: root.dark;
+                                    clicked => {
+                                        root.img-brightness = 0;
+                                        root.img-contrast = 1;
+                                        root.img-saturation = 1;
+                                        root.image-adjust(0, 1, 1);
+                                    }
+                                }
+                                ToolButton { text: "✕"; dark: root.dark; clicked => { root.image-visible = false; } }
+                            }
+                            Text { text: "Luminosité"; color: root.fg-dim; font-size: 11px; }
+                            Slider {
+                                minimum: -1.0;
+                                maximum: 1.0;
+                                value <=> root.img-brightness;
+                                changed(v) => { root.image-adjust(v, root.img-contrast, root.img-saturation); }
+                            }
+                            Text { text: "Contraste"; color: root.fg-dim; font-size: 11px; }
+                            Slider {
+                                minimum: 0.0;
+                                maximum: 2.0;
+                                value <=> root.img-contrast;
+                                changed(v) => { root.image-adjust(root.img-brightness, v, root.img-saturation); }
+                            }
+                            Text { text: "Saturation"; color: root.fg-dim; font-size: 11px; }
+                            Slider {
+                                minimum: 0.0;
+                                maximum: 3.0;
+                                value <=> root.img-saturation;
+                                changed(v) => { root.image-adjust(root.img-brightness, root.img-contrast, v); }
                             }
                         }
                     }
@@ -516,6 +737,13 @@ export component MainWindow inherits Window {
                     ToolButton { text: "⏹"; tip: "Stop"; dark: root.dark; clicked => { root.stop-playback(); } }
                     ToolButton { text: "⏩"; tip: "+10 s"; dark: root.dark; clicked => { root.seek-relative(10); } }
                     ToolButton { text: "⏭"; tip: "Suivant"; dark: root.dark; clicked => { root.next-item(); } }
+                    ToolButton {
+                        text: root.repeat-mode == 2 ? "🔂" : "🔁";
+                        tip: "Répétition (R)";
+                        dark: root.dark;
+                        active: root.repeat-mode != 0;
+                        clicked => { root.cycle-repeat(); }
+                    }
 
                     Rectangle { width: 10px; }
 
@@ -545,6 +773,11 @@ export component MainWindow inherits Window {
                     ToolButton { text: "−"; tip: "ST plus tôt"; dark: root.dark; width: 24px; clicked => { root.sub-delay-adjust(-0.5); } }
                     Text { text: root.sub-delay-text; color: root.fg-dim; vertical-alignment: center; }
                     ToolButton { text: "+"; tip: "ST plus tard"; dark: root.dark; width: 24px; clicked => { root.sub-delay-adjust(0.5); } }
+
+                    Text { text: "A/V"; color: root.fg-dim; vertical-alignment: center; }
+                    ToolButton { text: "−"; tip: "Audio plus tôt"; dark: root.dark; width: 24px; clicked => { root.audio-delay-adjust(-0.1); } }
+                    Text { text: root.audio-delay-text; color: root.fg-dim; vertical-alignment: center; }
+                    ToolButton { text: "+"; tip: "Audio plus tard"; dark: root.dark; width: 24px; clicked => { root.audio-delay-adjust(0.1); } }
 
                     Rectangle { horizontal-stretch: 1; }
 

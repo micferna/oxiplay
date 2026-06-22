@@ -7,7 +7,9 @@
 use crate::player::clock::PlaybackClock;
 use crate::subtitles::{BitmapSubtitleTrack, SubtitleTrack};
 use crate::video::VideoFrameData;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{
+    AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering,
+};
 use std::sync::{Arc, Mutex};
 
 /// Description d'une piste (audio ou sous-titres) du média ouvert.
@@ -21,6 +23,15 @@ pub struct TrackInfo {
     pub title: Option<String>,
     /// Nom du codec (ex. `aac`, `subrip`).
     pub codec: String,
+}
+
+/// Un chapitre du média : point de navigation horodaté.
+#[derive(Debug, Clone)]
+pub struct ChapterInfo {
+    /// Début du chapitre (µs).
+    pub start_us: i64,
+    /// Titre lisible (ou « Chapitre N » par défaut).
+    pub title: String,
 }
 
 impl TrackInfo {
@@ -64,6 +75,9 @@ pub struct SharedState {
     pub last_frame: Mutex<Option<Arc<VideoFrameData>>>,
     /// Décalage utilisateur des sous-titres (µs, positif = retarder).
     pub subtitle_delay_us: AtomicI64,
+    /// Décalage de synchronisation audio/vidéo (µs, positif = audio retardé
+    /// par rapport à la vidéo). Appliqué au PTS rapporté à l'horloge maîtresse.
+    pub audio_delay_us: AtomicI64,
     /// Piste de sous-titres externe chargée manuellement (prioritaire).
     pub external_subtitles: Mutex<Option<SubtitleTrack>>,
     /// Répliques décodées depuis la piste embarquée sélectionnée.
@@ -74,6 +88,14 @@ pub struct SharedState {
     pub audio_tracks: Mutex<Vec<TrackInfo>>,
     /// Pistes de sous-titres embarquées disponibles.
     pub subtitle_tracks: Mutex<Vec<TrackInfo>>,
+    /// Chapitres du média (navigation), vide si aucun.
+    pub chapters: Mutex<Vec<ChapterInfo>>,
+    /// Fiche d'informations média (texte multi-lignes : conteneur, codecs,
+    /// résolution, HDR, débits…), pour l'affichage à la demande.
+    pub media_info: Mutex<String>,
+    /// Durée d'une image vidéo (µs), pour l'avance image par image ; 0 si
+    /// inconnue (on retombe alors sur une estimation à ~24 i/s).
+    pub frame_duration_us: AtomicI64,
     /// Erreur fatale remontée par un thread (affichée par l'UI).
     pub error: Mutex<Option<String>>,
     /// Présence d'un flux audio/vidéo dans le média.
@@ -86,6 +108,20 @@ pub struct SharedState {
     pub eq_generation: AtomicU64,
     /// Décodage matériel autorisé (repli logiciel si indisponible).
     pub hwaccel_enabled: AtomicBool,
+    /// Rotation d'affichage : 0 = aucune, 1 = 90° horaire, 2 = 180°,
+    /// 3 = 270° (90° anti-horaire). Appliquée par le filtre `transpose`.
+    pub rotation: AtomicU8,
+    /// Réglages d'image en millièmes, appliqués par le filtre `eq` :
+    /// luminosité (0 = neutre, −1000..1000), contraste et saturation
+    /// (1000 = neutre).
+    pub brightness_milli: AtomicI32,
+    pub contrast_milli: AtomicI32,
+    pub saturation_milli: AtomicI32,
+    /// Statistiques de présentation (HUD de diagnostic) : images réellement
+    /// affichées, images sautées (retard), et dernier décalage A/V (µs).
+    pub frames_presented: AtomicU64,
+    pub frames_dropped: AtomicU64,
+    pub last_av_delta_us: AtomicI64,
 }
 
 impl Default for SharedState {
@@ -103,17 +139,28 @@ impl Default for SharedState {
             audio_done: AtomicBool::new(false),
             last_frame: Mutex::new(None),
             subtitle_delay_us: AtomicI64::new(0),
+            audio_delay_us: AtomicI64::new(0),
             external_subtitles: Mutex::new(None),
             embedded_subtitles: Mutex::new(SubtitleTrack::default()),
             bitmap_subtitles: Mutex::new(BitmapSubtitleTrack::default()),
             audio_tracks: Mutex::new(Vec::new()),
             subtitle_tracks: Mutex::new(Vec::new()),
+            chapters: Mutex::new(Vec::new()),
+            media_info: Mutex::new(String::new()),
+            frame_duration_us: AtomicI64::new(0),
             error: Mutex::new(None),
             has_audio: AtomicBool::new(false),
             has_video: AtomicBool::new(false),
             equalizer: Mutex::new([0.0; 10]),
             eq_generation: AtomicU64::new(0),
             hwaccel_enabled: AtomicBool::new(true),
+            rotation: AtomicU8::new(0),
+            brightness_milli: AtomicI32::new(0),
+            contrast_milli: AtomicI32::new(1000),
+            saturation_milli: AtomicI32::new(1000),
+            frames_presented: AtomicU64::new(0),
+            frames_dropped: AtomicU64::new(0),
+            last_av_delta_us: AtomicI64::new(0),
         }
     }
 }

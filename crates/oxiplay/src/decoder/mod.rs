@@ -24,6 +24,7 @@ mod audio_filter;
 mod demux;
 mod hwaccel;
 mod video;
+mod video_filter;
 
 pub use audio::run_audio_decoder;
 pub use audio_filter::EQ_FREQUENCIES;

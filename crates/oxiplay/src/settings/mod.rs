@@ -15,6 +15,30 @@ const RESUME_MIN_US: i64 = 10_000_000;
 /// …et qu'elle est avant ce pourcentage de la durée (sinon : « terminé »).
 const RESUME_MAX_RATIO: f64 = 0.95;
 
+/// État mémorisé par fichier : pistes et vitesse choisies, pour les retrouver
+/// à la réouverture du même média.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MediaState {
+    /// Index de vitesse (dans la table des vitesses de l'application).
+    pub speed_index: i32,
+    /// Index de combo de piste audio (0 = première piste).
+    pub audio_track: i32,
+    /// Index de combo de sous-titres (0 = désactivés).
+    pub subtitle_track: i32,
+}
+
+impl Default for MediaState {
+    fn default() -> Self {
+        // 3 = vitesse 1.00× ; 0 = première piste audio / sous-titres désactivés.
+        Self {
+            speed_index: 3,
+            audio_track: 0,
+            subtitle_track: 0,
+        }
+    }
+}
+
 /// Paramètres de l'application, persistés entre les sessions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -30,8 +54,17 @@ pub struct Settings {
     pub resume_positions: HashMap<String, i64>,
     /// Décalage des sous-titres appliqué par défaut (secondes).
     pub subtitle_delay_secs: f32,
+    /// Décalage de synchronisation audio/vidéo par défaut (secondes).
+    pub audio_delay_secs: f32,
     /// Gains de l'égaliseur 10 bandes (dB) — réservé à l'égaliseur audio.
     pub equalizer_gains: [f32; 10],
+    /// Échelle de taille des sous-titres (1.0 = 100 %).
+    pub subtitle_scale: f32,
+    /// Couleur forcée des sous-titres (0xRRGGBB), ou `None` pour suivre le
+    /// style d'origine (ASS).
+    pub subtitle_color: Option<u32>,
+    /// État mémorisé (pistes, vitesse) par média.
+    pub media_states: HashMap<String, MediaState>,
 }
 
 impl Default for Settings {
@@ -42,7 +75,11 @@ impl Default for Settings {
             history: Vec::new(),
             resume_positions: HashMap::new(),
             subtitle_delay_secs: 0.0,
+            audio_delay_secs: 0.0,
             equalizer_gains: [0.0; 10],
+            subtitle_scale: 1.0,
+            subtitle_color: None,
+            media_states: HashMap::new(),
         }
     }
 }
@@ -105,6 +142,21 @@ impl Settings {
     pub fn resume_position(&self, source: &str) -> Option<i64> {
         self.resume_positions.get(source).copied()
     }
+
+    /// Mémorise l'état (pistes, vitesse) d'un média, ou l'efface s'il est
+    /// entièrement par défaut (pour ne pas gonfler la configuration).
+    pub fn remember_media_state(&mut self, source: &str, state: MediaState) {
+        if state == MediaState::default() {
+            self.media_states.remove(source);
+        } else {
+            self.media_states.insert(source.to_string(), state);
+        }
+    }
+
+    /// État mémorisé pour un média, le cas échéant.
+    pub fn media_state(&self, source: &str) -> Option<MediaState> {
+        self.media_states.get(source).cloned()
+    }
 }
 
 #[cfg(test)]
@@ -136,6 +188,25 @@ mod tests {
         // Quasi fini : oublié.
         s.remember_position("a", dur - 1_000_000, dur);
         assert_eq!(s.resume_position("a"), None);
+    }
+
+    #[test]
+    fn media_state_remember_and_clear() {
+        let mut s = Settings::default();
+        // L'état par défaut n'est pas stocké.
+        s.remember_media_state("a", MediaState::default());
+        assert!(s.media_state("a").is_none());
+        // Un état non-défaut est stocké et relu.
+        let st = MediaState {
+            speed_index: 5,
+            audio_track: 1,
+            subtitle_track: 2,
+        };
+        s.remember_media_state("a", st.clone());
+        assert_eq!(s.media_state("a"), Some(st));
+        // Repasser au défaut efface l'entrée.
+        s.remember_media_state("a", MediaState::default());
+        assert!(s.media_state("a").is_none());
     }
 
     #[test]

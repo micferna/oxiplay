@@ -10,6 +10,7 @@ use crate::player::state::SharedState;
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::collections::VecDeque;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 /// File d'échantillons stéréo entrelacés, horodatée.
@@ -196,6 +197,9 @@ fn render_audio<T>(
 
     let volume = shared.effective_volume();
     let speed = shared.speed();
+    // Décalage de synchronisation A/V : décale le PTS rapporté à l'horloge
+    // maîtresse, donc la vidéo par rapport à l'audio réellement entendu.
+    let audio_delay = shared.audio_delay_us.load(Ordering::Relaxed);
     let mut inner = queue.inner.lock().unwrap();
     let mut consumed_frames = 0usize;
 
@@ -228,7 +232,7 @@ fn render_audio<T>(
         inner.front_pts_us += advance_us;
         let pts = inner.front_pts_us;
         drop(inner);
-        // L'audio pilote l'horloge maîtresse.
-        shared.clock.sync_to(pts);
+        // L'audio pilote l'horloge maîtresse (avec le décalage A/V utilisateur).
+        shared.clock.sync_to(pts + audio_delay);
     }
 }

@@ -12,6 +12,8 @@
 pub mod app;
 pub mod audio;
 pub mod decoder;
+pub mod inhibit;
+pub mod media_controls;
 pub mod player;
 pub mod playlist;
 pub mod settings;
