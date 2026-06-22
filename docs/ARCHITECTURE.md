@@ -50,19 +50,23 @@ deuxième).
 
 ## Modules
 
-| Module        | Rôle | Dépend de |
-|---------------|------|-----------|
-| `app/`        | Couche application : relie moteur, playlist, paramètres, UI | tous |
-| `player/`     | Moteur : threads, horloge (`clock.rs`), état partagé (`state.rs`), présentation | decoder, audio, video |
-| `decoder/`    | Demuxage (`demux.rs`), décodage vidéo (`video.rs`) + accélération matérielle (`hwaccel.rs`), décodage audio (`audio.rs`) + graphe de filtres (`audio_filter.rs`) via ffmpeg-the-third | subtitles, streaming, video |
-| `audio/`      | Sortie cpal, file d'échantillons, volume, horloge | player::state |
-| `video/`      | Types d'images décodées, capture d'écran PNG | — |
-| `subtitles/`  | Parseurs SRT/VTT/ASS/SSA + style (`mod.rs`), sous-titres image PGS/DVD (`bitmap.rs`) | — |
-| `playlist/`   | Modèle de liste, M3U | streaming, utils |
-| `streaming/`  | Classification d'URL, options libavformat par protocole | — |
-| `settings/`   | Persistance JSON : volume, thème, historique, reprise | — |
-| `ui/`         | Code généré Slint + conversions | video |
-| `utils/`      | Formatage temps, noms affichables | — |
+| Module             | Rôle | Dépend de |
+|--------------------|------|-----------|
+| `app/`             | Couche application : relie moteur, playlist, paramètres, UI ; mémoire par fichier, contrôles | tous |
+| `player/`          | Moteur : threads, horloge (`clock.rs`), état partagé (`state.rs`, compteurs HUD), présentation | decoder, audio, video |
+| `decoder/`         | Demuxage + chapitres + fiche média (`demux.rs`), décodage vidéo (`video.rs`) + hwaccel (`hwaccel.rs`) + graphe de filtres vidéo yadif/transpose/eq (`video_filter.rs`), décodage audio (`audio.rs`) + graphe audio (`audio_filter.rs`) | subtitles, streaming, video |
+| `audio/`           | Sortie cpal (sélection de périphérique), file d'échantillons, callback temps réel non bloquant | player::state |
+| `video/`           | Types d'images décodées, capture d'écran PNG | — |
+| `subtitles/`       | Parseurs SRT/VTT/ASS/SSA + style (`mod.rs`), sous-titres image PGS/DVD (`bitmap.rs`) | — |
+| `playlist/`        | Modèle de liste, M3U, modes de répétition | streaming, utils |
+| `streaming/`       | Classification d'URL, normalisation Blu-ray (BDMV/.iso → `bluray:`), options libavformat | — |
+| `settings/`        | Persistance JSON : volume, thème, historique, reprise, décalages, égaliseur, sous-titres, état par fichier | — |
+| `inhibit/`         | Inhibition de la veille pendant la lecture (`systemd-inhibit`) | — |
+| `media_controls/`  | Contrôles média du bureau MPRIS/SMTC/Now Playing (souvlaki) | — |
+| `update/`          | Vérification de mise à jour au lancement (API GitHub Releases) | — |
+| `render/`          | Shader WGSL YUV→RGB + HDR pour la voie wgpu zéro-copie (feature `gpu`, en cours) | — |
+| `ui/`              | Code généré Slint + conversions | video |
+| `utils/`           | Formatage temps, noms affichables | — |
 
 Le graphe de dépendances est **acyclique** et chaque module est testable
 isolément (principe de responsabilité unique ; le moteur dépend

@@ -23,27 +23,45 @@ Objectif : un concurrent open source de VLC, propre, modulaire et performant.
 - **Streaming** : HTTP/HTTPS progressif, HLS (`.m3u8`), RTSP (transport TCP),
   IPTV (UDP/RTP multicast), avec reconnexion automatique et timeouts
 
+- **Désentrelacement** automatique (yadif) des flux entrelacés (DVD, TS, IPTV)
+- **Chapitres** (MKV/MP4/Blu-ray) : navigation par liste déroulante
+
 ### Sous-titres
 - Formats **SRT, ASS, SSA, WebVTT** (fichiers externes, chargement manuel)
 - Pistes **embarquées** (SubRip/ASS dans MKV/MP4), sélection à la volée
-- **Décalage réglable** (±0,5 s) pour la synchronisation
+- Sous-titres **image PGS/DVD** incrustés sur la vidéo
+- **Décalage réglable** et **style utilisateur** (taille, couleur)
 
 ### Contrôles
-- Lecture / pause / stop, avance & retour rapides (±10 s)
-- Vitesse **0.25× à 4×**, volume, sourdine
-- **Plein écran** (double-clic ou `F`), **capture d'écran** PNG (`S`)
-- **Mini-lecteur** (fenêtre compacte avec contrôles flottants)
-- Raccourcis : `Espace` lecture/pause, `←`/`→` seek, `↑`/`↓` volume, `M` muet,
-  `F` plein écran, `P` mini-lecteur, `S` capture
+- Lecture / pause / stop, avance & retour rapides (±10 s), **avance image par image**
+- Vitesse **0.25× à 4×** (hauteur préservée), volume, sourdine
+- **Rotation** (0/90/180/270°), **plein écran**, **capture d'écran** PNG
+- **Modes de répétition** (off / liste / média), **mini-lecteur**
+- **HUD de statistiques** (FPS, images sautées, A/V)
+- Raccourcis : `Espace`, `←`/`→`, `↑`/`↓`, `M` muet, `F` plein écran,
+  `P` mini-lecteur, `S` capture, `R` répétition, `H` stats, `.`/`,` image suivante/précédente
+
+### Image & audio
+- **Réglages d'image** : luminosité, contraste, saturation
+- **Égaliseur 10 bandes** + préréglages (Rock, Pop, Jazz, Voix…)
+- **Décalage de synchronisation A/V** réglable
+- **Sélection du périphérique** de sortie audio
 
 ### Playlist
 - Ajout (multi-sélection), suppression, réorganisation (▲/▼)
 - Sauvegarde / chargement **M3U** (compatible VLC)
-- Enchaînement automatique, piste suivante/précédente
+- Enchaînement automatique, **fichiers récents**
+
+### Intégration bureau
+- **Contrôles média** MPRIS/SMTC/Now Playing : touches multimédia du clavier
+  et affichage du média en cours dans le bureau
+- **Inhibition de la veille** pendant la lecture (l'écran ne s'éteint plus)
+- **Vérification de mise à jour** au lancement (release GitHub)
 
 ### Confort
 - **Reprise automatique** à la dernière position
-- **Historique** de lecture (50 entrées)
+- **Mémoire par fichier** (vitesse, piste audio, sous-titres) et historique
+- **Fiche d'informations média** (codec, résolution, HDR, débits)
 - Thèmes **clair / sombre**, paramètres **persistants** (JSON)
 - Plusieurs pistes **audio** et **sous-titres** par média
 
