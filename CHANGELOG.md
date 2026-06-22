@@ -13,6 +13,12 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   couleurs de tout le contenu HD et HDR.
 
 ### Ajouté
+- **Interface bilingue français / anglais** (i18n) : les libellés de l'interface
+  sont traduisibles via les traductions *bundlées* de Slint (gettext `.po`
+  compilés dans le binaire, sans dépendance système). La langue suit
+  automatiquement la locale du système (`LANG`/`LC_ALL`) et peut être forcée
+  par le paramètre `language` (`"auto"`, `"fr"`, `"en"`). Le français reste la
+  langue source ; l'anglais est fourni (`lang/en/LC_MESSAGES/oxiplay.po`).
 - **Sous-titres en ligne** (OpenSubtitles, bouton 🔍) : recherche et
   téléchargement automatique pour le média courant, dans la langue préférée.
   Nécessite une clé d'API gratuite (paramètre `opensubtitles_api_key`).

@@ -62,6 +62,8 @@ Objectif : un concurrent open source de VLC, propre, modulaire et performant.
 - **Vérification de mise à jour** au lancement (release GitHub)
 
 ### Confort
+- **Interface bilingue** français / anglais (suit la locale système ; forçable
+  via le paramètre `language` : `"auto"`, `"fr"`, `"en"`)
 - **Reprise automatique** à la dernière position
 - **Mémoire par fichier** (vitesse, piste audio, sous-titres) et historique
 - **Fiche d'informations média** (codec, résolution, HDR, débits)

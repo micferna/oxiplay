@@ -5,7 +5,12 @@ fn main() {
     std::thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
         .spawn(|| {
-            slint_build::compile("ui/main.slint")
+            // Traductions bundlées (gettext .po dans lang/<lang>/LC_MESSAGES/),
+            // sans contexte par défaut → msgid = la chaîne source telle quelle.
+            let config = slint_build::CompilerConfiguration::new()
+                .with_bundled_translations("lang")
+                .with_default_translation_context(slint_build::DefaultTranslationContext::None);
+            slint_build::compile_with_config("ui/main.slint", config)
                 .expect("échec de compilation des fichiers .slint");
         })
         .expect("échec du lancement du thread de compilation Slint")

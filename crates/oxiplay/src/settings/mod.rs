@@ -71,6 +71,8 @@ pub struct Settings {
     pub opensubtitles_api_key: String,
     /// Langue préférée des sous-titres en ligne (code ISO, ex. « fr »).
     pub subtitle_language: String,
+    /// Langue de l'interface : « auto » (selon le système), « fr » ou « en ».
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -89,6 +91,7 @@ impl Default for Settings {
             check_updates: true,
             opensubtitles_api_key: String::new(),
             subtitle_language: "fr".to_string(),
+            language: "auto".to_string(),
         }
     }
 }
@@ -166,6 +169,27 @@ impl Settings {
     pub fn media_state(&self, source: &str) -> Option<MediaState> {
         self.media_states.get(source).cloned()
     }
+
+    /// Résout la langue d'interface effective (`"fr"` ou `"en"`).
+    ///
+    /// Le réglage `language` vaut `"auto"` (suit la variable d'environnement
+    /// `LANG`/`LC_ALL`), `"fr"` ou `"en"`. Toute valeur ne commençant pas par
+    /// `en` retombe sur le français (langue source de l'interface).
+    pub fn resolve_language(&self) -> &'static str {
+        let want = if self.language == "auto" {
+            std::env::var("LC_ALL")
+                .or_else(|_| std::env::var("LANG"))
+                .unwrap_or_default()
+                .to_lowercase()
+        } else {
+            self.language.to_lowercase()
+        };
+        if want.starts_with("en") {
+            "en"
+        } else {
+            "fr"
+        }
+    }
 }
 
 #[cfg(test)]
@@ -216,6 +240,21 @@ mod tests {
         // Repasser au défaut efface l'entrée.
         s.remember_media_state("a", MediaState::default());
         assert!(s.media_state("a").is_none());
+    }
+
+    #[test]
+    fn resolve_language_explicit_and_auto() {
+        // Choix explicite.
+        let mut s = Settings {
+            language: "en".to_string(),
+            ..Settings::default()
+        };
+        assert_eq!(s.resolve_language(), "en");
+        s.language = "fr".to_string();
+        assert_eq!(s.resolve_language(), "fr");
+        // Valeur inconnue → repli français.
+        s.language = "de".to_string();
+        assert_eq!(s.resolve_language(), "fr");
     }
 
     #[test]
