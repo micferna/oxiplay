@@ -100,12 +100,13 @@ jobs:
   audit:
     name: Audit sécurité (CVE)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      checks: write
-      issues: write
     steps:
       - uses: actions/checkout@v6
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-audit --locked
+      # Échoue sur les vulnérabilités exploitables (exit 1) ; les avis
+      # informatifs (crates non maintenues / unsound / yanked dans les
+      # dépendances transitives de Slint/wgpu, qu'on ne contrôle pas) sont
+      # affichés mais tolérés (cargo audit sort 0).
+      - run: cargo audit
