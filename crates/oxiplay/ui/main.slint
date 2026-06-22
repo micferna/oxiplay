@@ -190,6 +190,7 @@ export component MainWindow inherits Window {
     in-out property <bool> info-visible: false;
     in property <string> stats-text: "";
     in-out property <bool> stats-visible: false;
+    in property <string> update-version: ""; // non vide = mise à jour dispo
     in-out property <bool> subs-visible: false;
     in-out property <float> img-brightness: 0.0;
     in-out property <float> img-contrast: 1.0;
@@ -227,6 +228,7 @@ export component MainWindow inherits Window {
     callback subtitle-scale-adjust(float);
     callback set-subtitle-color(int); // 0xRRGGBB, ou < 0 = style d'origine
     callback toggle-theme();
+    callback open-update();
     callback eq-band-changed(int, float); // bande, gain dB
     callback eq-reset();
     callback eq-preset-selected(int);     // index de préréglage
@@ -322,6 +324,14 @@ export component MainWindow inherits Window {
                         dark: root.dark;
                         active: root.playlist-visible;
                         clicked => { root.playlist-visible = !root.playlist-visible; }
+                    }
+                    if root.update-version != "": ToolButton {
+                        text: "⬆ v" + root.update-version;
+                        tip: "Mise à jour disponible — ouvrir la page";
+                        dark: root.dark;
+                        active: true;
+                        width: 96px;
+                        clicked => { root.open-update(); }
                     }
                 }
             }

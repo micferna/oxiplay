@@ -20,5 +20,6 @@ pub mod settings;
 pub mod streaming;
 pub mod subtitles;
 pub mod ui;
+pub mod update;
 pub mod utils;
 pub mod video;

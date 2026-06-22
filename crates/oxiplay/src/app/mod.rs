@@ -13,6 +13,7 @@ use crate::player::{AudioSink, FrameSink, PlayerEngine};
 use crate::playlist::{Playlist, PlaylistItem, RepeatMode};
 use crate::settings::{MediaState, Settings};
 use crate::ui::{frame_to_image, MainWindow, PlaylistEntry};
+use crate::update::UpdateChecker;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,6 +70,10 @@ pub struct App {
     pending_subtitle_track: Option<i32>,
     /// Noms des périphériques de sortie audio (index de combo → nom).
     audio_device_names: Vec<String>,
+    /// Vérificateur de mise à jour (lancé au démarrage selon les réglages).
+    update_checker: UpdateChecker,
+    /// URL de la release disponible, le cas échéant.
+    update_url: Option<String>,
 }
 
 /// Préréglages d'égaliseur (gains dB, ordre [`crate::decoder::EQ_FREQUENCIES`] :
@@ -119,6 +124,12 @@ impl App {
             pending_audio_track: None,
             pending_subtitle_track: None,
             audio_device_names: AudioOutput::list_output_devices(),
+            update_checker: if settings.check_updates {
+                UpdateChecker::spawn()
+            } else {
+                UpdateChecker::disabled()
+            },
+            update_url: None,
             settings,
         };
         if let Some(ui) = app.ui.upgrade() {
@@ -460,6 +471,13 @@ impl App {
     pub fn toggle_stats(&mut self) {
         if let Some(ui) = self.ui.upgrade() {
             ui.set_stats_visible(!ui.get_stats_visible());
+        }
+    }
+
+    /// Ouvre la page de la mise à jour disponible dans le navigateur.
+    pub fn open_update(&mut self) {
+        if let Some(url) = &self.update_url {
+            crate::update::open_in_browser(url);
         }
     }
 
@@ -833,6 +851,13 @@ impl App {
         // Commandes des contrôles média du bureau (touches multimédia, MPRIS).
         for event in self.media_keys.poll() {
             self.apply_media_event(event);
+        }
+
+        // Mise à jour disponible ? (résultat du thread de vérification.)
+        if let Some(info) = self.update_checker.poll() {
+            self.update_url = Some(info.url);
+            ui.set_update_version(info.version.clone().into());
+            self.set_status(&format!("Mise à jour disponible : v{}", info.version));
         }
 
         let Some(engine) = &self.engine else {

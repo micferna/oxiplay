@@ -39,7 +39,10 @@ dirs = "6"
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
+# Contrôles média du bureau (MPRIS/SMTC/Now Playing), backend zbus pur Rust
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+# Client HTTP minimal (TLS rustls) pour la vérification de mise à jour
+ureq = "2"
 
 [build-dependencies]
 slint-build = "1.8"

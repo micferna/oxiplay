@@ -65,6 +65,8 @@ pub struct Settings {
     pub subtitle_color: Option<u32>,
     /// État mémorisé (pistes, vitesse) par média.
     pub media_states: HashMap<String, MediaState>,
+    /// Vérifier les mises à jour au lancement (API GitHub).
+    pub check_updates: bool,
 }
 
 impl Default for Settings {
@@ -80,6 +82,7 @@ impl Default for Settings {
             subtitle_scale: 1.0,
             subtitle_color: None,
             media_states: HashMap::new(),
+            check_updates: true,
         }
     }
 }

@@ -13,6 +13,9 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   couleurs de tout le contenu HD et HDR.
 
 ### Ajouté
+- **Vérification de mise à jour au lancement** : interroge l'API GitHub Releases
+  en arrière-plan et signale (bannière cliquable dans la barre d'outils) qu'une
+  version plus récente est disponible. Désactivable (`check_updates`).
 - **Sélecteur de périphérique de sortie audio** : liste déroulante (affichée
   dès qu'il y a plusieurs sorties) ; la bascule reconstruit la sortie et rouvre
   le média à la même position (le décodeur se reconfigure à la fréquence du

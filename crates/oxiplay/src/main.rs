@@ -101,6 +101,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_set_subtitle_color, |a, code: i32| a
         .set_subtitle_color(code));
     on!(on_toggle_theme, |a| a.toggle_theme());
+    on!(on_open_update, |a| a.open_update());
     on!(on_eq_band_changed, |a, band: i32, gain: f32| a
         .set_equalizer_band(band, gain));
     on!(on_eq_reset, |a| a.reset_equalizer());
