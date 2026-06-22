@@ -67,6 +67,13 @@ fn demux_loop(
 ) -> anyhow::Result<()> {
     // Normalise la source (dossier BDMV / image .iso → protocole bluray:).
     let source = crate::streaming::normalize_source(&config.source);
+    // Page web (YouTube, Vimeo…) → URL de flux directe via yt-dlp (best
+    // effort ; conserve l'URL d'origine si yt-dlp est absent ou échoue).
+    let source = if crate::ytdlp::should_resolve(&source) {
+        crate::ytdlp::resolve(&source).unwrap_or(source)
+    } else {
+        source
+    };
     let kind = crate::streaming::classify(&source);
     let options = crate::streaming::demux_options(kind);
     let mut ictx = ffmpeg::format::input_with_dictionary(std::path::Path::new(&source), options)?;

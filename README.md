@@ -22,6 +22,8 @@ Objectif : un concurrent open source de VLC, propre, modulaire et performant.
   dont l'UHD 4K, n'est pas pris en charge)
 - **Streaming** : HTTP/HTTPS progressif, HLS (`.m3u8`), RTSP (transport TCP),
   IPTV (UDP/RTP multicast), avec reconnexion automatique et timeouts
+- **Vidéos web** (YouTube, Vimeo, Twitch…) via **yt-dlp** s'il est installé :
+  l'URL d'une page est résolue automatiquement en flux direct
 
 - **Désentrelacement** automatique (yadif) des flux entrelacés (DVD, TS, IPTV)
 - **Chapitres** (MKV/MP4/Blu-ray) : navigation par liste déroulante

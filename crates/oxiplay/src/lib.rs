@@ -26,3 +26,4 @@ pub mod ui;
 pub mod update;
 pub mod utils;
 pub mod video;
+pub mod ytdlp;
