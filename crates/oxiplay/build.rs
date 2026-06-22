@@ -5,7 +5,8 @@ fn main() {
     std::thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
         .spawn(|| {
-            slint_build::compile("ui/main.slint").expect("échec de compilation des fichiers .slint");
+            slint_build::compile("ui/main.slint")
+                .expect("échec de compilation des fichiers .slint");
         })
         .expect("échec du lancement du thread de compilation Slint")
         .join()
