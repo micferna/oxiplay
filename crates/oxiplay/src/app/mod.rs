@@ -12,8 +12,10 @@ use crate::player::state::TrackInfo;
 use crate::player::{AudioSink, FrameSink, PlayerEngine};
 use crate::playlist::{Playlist, PlaylistItem, RepeatMode};
 use crate::settings::{MediaState, Settings};
+use crate::subtitles::SubtitleTrack;
 use crate::ui::{frame_to_image, MainWindow, PlaylistEntry};
 use crate::update::UpdateChecker;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -74,6 +76,9 @@ pub struct App {
     update_checker: UpdateChecker,
     /// URL de la release disponible, le cas échéant.
     update_url: Option<String>,
+    /// Canal de livraison des sous-titres téléchargés en ligne (thread → UI).
+    subtitle_dl_tx: Sender<Option<SubtitleTrack>>,
+    subtitle_dl_rx: Receiver<Option<SubtitleTrack>>,
 }
 
 /// Préréglages d'égaliseur (gains dB, ordre [`crate::decoder::EQ_FREQUENCIES`] :
@@ -100,6 +105,7 @@ impl App {
                 None
             }
         };
+        let (subtitle_dl_tx, subtitle_dl_rx) = unbounded();
         let app = Self {
             ui,
             audio,
@@ -130,6 +136,8 @@ impl App {
                 UpdateChecker::disabled()
             },
             update_url: None,
+            subtitle_dl_tx,
+            subtitle_dl_rx,
             settings,
         };
         if let Some(ui) = app.ui.upgrade() {
@@ -757,6 +765,31 @@ impl App {
         }
     }
 
+    /// Recherche et télécharge des sous-titres en ligne (OpenSubtitles) pour le
+    /// média courant, en arrière-plan. Le résultat est livré via un canal,
+    /// drainé dans `tick`.
+    pub fn search_online_subtitles(&mut self) {
+        let Some(source) = self.current_source.clone() else {
+            self.set_status("Ouvrez d'abord un média");
+            return;
+        };
+        let key = self.settings.opensubtitles_api_key.clone();
+        if key.trim().is_empty() {
+            self.set_status("Clé d'API OpenSubtitles non configurée (paramètres)");
+            return;
+        }
+        let lang = self.settings.subtitle_language.clone();
+        let query = crate::utils::display_name(&source);
+        let tx = self.subtitle_dl_tx.clone();
+        self.set_status("Recherche de sous-titres en ligne…");
+        std::thread::spawn(move || {
+            let track = crate::opensubtitles::find(&query, &lang, &key)
+                .as_deref()
+                .and_then(parse_subtitle_content);
+            let _ = tx.send(track);
+        });
+    }
+
     pub fn adjust_subtitle_delay(&mut self, delta_secs: f32) {
         self.sub_delay_secs = (self.sub_delay_secs + delta_secs as f64).clamp(-30.0, 30.0);
         self.settings.subtitle_delay_secs = self.sub_delay_secs as f32;
@@ -858,6 +891,20 @@ impl App {
             self.update_url = Some(info.url);
             ui.set_update_version(info.version.clone().into());
             self.set_status(&format!("Mise à jour disponible : v{}", info.version));
+        }
+
+        // Sous-titres téléchargés en ligne (résultat du thread OpenSubtitles).
+        if let Ok(result) = self.subtitle_dl_rx.try_recv() {
+            match result {
+                Some(track) => {
+                    let n = track.len();
+                    if let Some(engine) = &self.engine {
+                        *engine.shared.external_subtitles.lock().unwrap() = Some(track);
+                    }
+                    self.set_status(&format!("{n} sous-titres téléchargés"));
+                }
+                None => self.set_status("Aucun sous-titre trouvé en ligne"),
+            }
         }
 
         let Some(engine) = &self.engine else {
@@ -1065,6 +1112,21 @@ fn string_model(items: Vec<String>) -> ModelRc<SharedString> {
             .map(SharedString::from)
             .collect::<Vec<_>>(),
     )))
+}
+
+/// Signature d'un parseur de sous-titres (SRT/ASS/VTT).
+type SubParser = fn(&str) -> anyhow::Result<Vec<crate::subtitles::SubtitleCue>>;
+
+/// Parse un contenu de sous-titres (essaie SRT, ASS puis VTT) en piste.
+fn parse_subtitle_content(content: &str) -> Option<SubtitleTrack> {
+    use crate::subtitles::{parse_ass, parse_srt, parse_vtt};
+    let parsers: [SubParser; 3] = [parse_srt, parse_ass, parse_vtt];
+    parsers.into_iter().find_map(|parse| {
+        parse(content)
+            .ok()
+            .filter(|cues| !cues.is_empty())
+            .map(SubtitleTrack::new)
+    })
 }
 
 fn track_labels(tracks: &[TrackInfo]) -> ModelRc<SharedString> {

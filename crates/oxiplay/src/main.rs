@@ -94,6 +94,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_subtitle_track_selected, |a, idx: i32| a
         .select_subtitle_track(idx));
     on!(on_load_subtitle_file, |a| a.load_subtitle_dialog());
+    on!(on_search_online_subs, |a| a.search_online_subtitles());
     on!(on_sub_delay_adjust, |a, delta: f32| a
         .adjust_subtitle_delay(delta));
     on!(on_subtitle_scale_adjust, |a, delta: f32| a
