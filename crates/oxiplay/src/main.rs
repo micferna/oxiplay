@@ -89,6 +89,8 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_playlist_load, |a| a.playlist_load_dialog());
     on!(on_audio_track_selected, |a, idx: i32| a
         .select_audio_track(idx));
+    on!(on_audio_device_selected, |a, idx: i32| a
+        .select_audio_device(idx));
     on!(on_subtitle_track_selected, |a, idx: i32| a
         .select_subtitle_track(idx));
     on!(on_load_subtitle_file, |a| a.load_subtitle_dialog());

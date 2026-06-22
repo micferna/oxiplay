@@ -170,6 +170,7 @@ export component MainWindow inherits Window {
     in property <[PlaylistEntry]> playlist-entries: [];
     in property <[string]> audio-tracks: [];
     in property <[string]> subtitle-tracks: [];
+    in property <[string]> audio-devices: [];
     in property <[string]> recent-files: [];
     in property <[string]> chapters: [];
     in-out property <int> audio-track-index: 0;
@@ -220,6 +221,7 @@ export component MainWindow inherits Window {
     callback playlist-load();
     callback audio-track-selected(int);
     callback subtitle-track-selected(int);
+    callback audio-device-selected(int);
     callback load-subtitle-file();
     callback sub-delay-adjust(float); // ± secondes
     callback subtitle-scale-adjust(float);
@@ -789,6 +791,11 @@ export component MainWindow inherits Window {
                         max-width: 260px;
                     }
 
+                    if root.audio-devices.length > 1: ComboBox {
+                        width: 150px;
+                        model: root.audio-devices;
+                        selected => { root.audio-device-selected(self.current-index); }
+                    }
                     ToolButton {
                         text: root.muted ? "🔇" : "🔊";
                         dark: root.dark;

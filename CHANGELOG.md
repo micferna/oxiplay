@@ -13,6 +13,10 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   couleurs de tout le contenu HD et HDR.
 
 ### Ajouté
+- **Sélecteur de périphérique de sortie audio** : liste déroulante (affichée
+  dès qu'il y a plusieurs sorties) ; la bascule reconstruit la sortie et rouvre
+  le média à la même position (le décodeur se reconfigure à la fréquence du
+  nouveau matériel).
 - **Mémoire par fichier** : la vitesse de lecture, la piste audio et la piste
   de sous-titres choisies sont retrouvées à la réouverture du même média.
 - **HUD de statistiques** (touche `H`) : FPS réel, images sautées et décalage

@@ -67,6 +67,8 @@ pub struct App {
     /// pistes du média rouvert (mémoire par fichier).
     pending_audio_track: Option<i32>,
     pending_subtitle_track: Option<i32>,
+    /// Noms des périphériques de sortie audio (index de combo → nom).
+    audio_device_names: Vec<String>,
 }
 
 /// Préréglages d'égaliseur (gains dB, ordre [`crate::decoder::EQ_FREQUENCIES`] :
@@ -116,6 +118,7 @@ impl App {
             last_frames_dropped: 0,
             pending_audio_track: None,
             pending_subtitle_track: None,
+            audio_device_names: AudioOutput::list_output_devices(),
             settings,
         };
         if let Some(ui) = app.ui.upgrade() {
@@ -137,6 +140,7 @@ impl App {
             ));
             ui.set_eq_gains(float_model(&app.settings.equalizer_gains));
             ui.set_subtitle_scale(app.settings.subtitle_scale);
+            ui.set_audio_devices(string_model(app.audio_device_names.clone()));
             app.refresh_recent(&ui);
         }
         app
@@ -674,6 +678,31 @@ impl App {
             self.audio_track_streams.get(combo_index.max(0) as usize),
         ) {
             engine.select_audio_track(stream);
+        }
+    }
+
+    /// Change le périphérique de sortie audio. La sortie est reconstruite et,
+    /// si une lecture est en cours, le média est rouvert à la même position
+    /// (le décodeur audio se reconfigure à la fréquence du nouveau matériel).
+    pub fn select_audio_device(&mut self, combo_index: i32) {
+        let Some(name) = self
+            .audio_device_names
+            .get(combo_index.max(0) as usize)
+            .cloned()
+        else {
+            return;
+        };
+        let was_playing = self.engine.is_some();
+        self.stop_current(true);
+        match AudioOutput::new_with_device(Some(&name)) {
+            Ok(out) => {
+                self.audio = Some(out);
+                self.set_status(&format!("Sortie audio : {name}"));
+            }
+            Err(e) => self.set_status(&format!("Périphérique audio indisponible : {e}")),
+        }
+        if was_playing {
+            self.open_current();
         }
     }
 

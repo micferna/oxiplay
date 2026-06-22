@@ -72,12 +72,45 @@ pub struct AudioOutput {
 }
 
 impl AudioOutput {
+    /// Liste les noms des périphériques de sortie disponibles (vide si aucun
+    /// ou en cas d'erreur d'énumération).
+    pub fn list_output_devices() -> Vec<String> {
+        cpal::default_host()
+            .output_devices()
+            .map(|devices| {
+                devices
+                    .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Ouvre le périphérique de sortie par défaut.
     pub fn new() -> Result<Self> {
+        Self::new_with_device(None)
+    }
+
+    /// Ouvre un périphérique de sortie par son nom ; repli sur le périphérique
+    /// par défaut si le nom est inconnu ou absent.
+    pub fn new_with_device(name: Option<&str>) -> Result<Self> {
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .context("aucun périphérique de sortie audio")?;
+        let device = match name {
+            Some(wanted) => host
+                .output_devices()
+                .ok()
+                .and_then(|mut devices| {
+                    devices.find(|d| {
+                        d.description()
+                            .map(|desc| desc.name() == wanted)
+                            .unwrap_or(false)
+                    })
+                })
+                .or_else(|| host.default_output_device())
+                .context("aucun périphérique de sortie audio")?,
+            None => host
+                .default_output_device()
+                .context("aucun périphérique de sortie audio")?,
+        };
         let config = device
             .default_output_config()
             .context("configuration audio par défaut indisponible")?;
