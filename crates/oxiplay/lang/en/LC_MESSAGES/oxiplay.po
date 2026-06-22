@@ -1,0 +1,77 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: oxiplay\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"
+
+msgid "Vitesse"
+msgstr "Speed"
+
+msgid "Audio"
+msgstr "Audio"
+
+msgid "ST"
+msgstr "Subs"
+
+msgid "A/V"
+msgstr "A/V"
+
+msgid "Taille"
+msgstr "Size"
+
+msgid "Couleur"
+msgstr "Color"
+
+msgid "Luminosité"
+msgstr "Brightness"
+
+msgid "Contraste"
+msgstr "Contrast"
+
+msgid "Saturation"
+msgstr "Saturation"
+
+msgid "Image"
+msgstr "Image"
+
+msgid "Sous-titres"
+msgstr "Subtitles"
+
+msgid "Informations média"
+msgstr "Media info"
+
+msgid "Liste de lecture"
+msgstr "Playlist"
+
+msgid "Ajouter…"
+msgstr "Add…"
+
+msgid "Égaliseur (dB)"
+msgstr "Equalizer (dB)"
+
+msgid "URL réseau (http, https, hls .m3u8, rtsp)…"
+msgstr "Network URL (http, https, hls .m3u8, rtsp)…"
+
+msgid "Préréglage…"
+msgstr "Preset…"
+
+msgid "Plat"
+msgstr "Flat"
+
+msgid "Rock"
+msgstr "Rock"
+
+msgid "Pop"
+msgstr "Pop"
+
+msgid "Jazz"
+msgstr "Jazz"
+
+msgid "Classique"
+msgstr "Classical"
+
+msgid "Graves+"
+msgstr "Bass+"
+
+msgid "Voix"
+msgstr "Vocal"

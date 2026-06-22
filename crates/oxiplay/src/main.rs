@@ -22,6 +22,18 @@ fn main() -> anyhow::Result<()> {
     ffmpeg_the_third::util::log::set_level(ffmpeg_the_third::util::log::Level::Error);
 
     let main_window = MainWindow::new()?;
+
+    // Langue de l'interface (traductions bundlées, voir build.rs). Le français
+    // est la langue source : on ne sélectionne une traduction que pour les
+    // autres langues. Appelé après la création de la fenêtre (contexte Slint
+    // initialisé) mais avant `run()`, donc sans clignotement visible.
+    let ui_language = oxiplay::settings::Settings::load().resolve_language();
+    if ui_language != "fr" {
+        if let Err(e) = slint::select_bundled_translation(ui_language) {
+            log::debug!("traduction « {ui_language} » indisponible : {e}");
+        }
+    }
+
     let app = Rc::new(RefCell::new(App::new(main_window.as_weak())));
 
     wire_callbacks(&main_window, &app);

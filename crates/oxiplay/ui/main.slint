@@ -295,7 +295,7 @@ export component MainWindow inherits Window {
                         selected => { root.chapter-selected(self.current-index); }
                     }
                     url-input := LineEdit {
-                        placeholder-text: "URL réseau (http, https, hls .m3u8, rtsp)…";
+                        placeholder-text: @tr("URL réseau (http, https, hls .m3u8, rtsp)…");
                         horizontal-stretch: 1;
                         accepted(text) => { root.open-url(text); self.text = ""; }
                     }
@@ -421,7 +421,7 @@ export component MainWindow inherits Window {
                             HorizontalLayout {
                                 spacing: 6px;
                                 Text {
-                                    text: "Égaliseur (dB)";
+                                    text: @tr("Égaliseur (dB)");
                                     color: root.fg;
                                     font-weight: 700;
                                     vertical-alignment: center;
@@ -432,7 +432,7 @@ export component MainWindow inherits Window {
                             }
                             ComboBox {
                                 height: 26px;
-                                model: ["Préréglage…", "Plat", "Rock", "Pop", "Jazz", "Classique", "Graves+", "Voix"];
+                                model: [@tr("Préréglage…"), @tr("Plat"), @tr("Rock"), @tr("Pop"), @tr("Jazz"), @tr("Classique"), @tr("Graves+"), @tr("Voix")];
                                 selected => { root.eq-preset-selected(self.current-index); }
                             }
                             HorizontalLayout {
@@ -485,7 +485,7 @@ export component MainWindow inherits Window {
                             spacing: 8px;
                             HorizontalLayout {
                                 Text {
-                                    text: "Informations média";
+                                    text: @tr("Informations média");
                                     color: root.fg;
                                     font-weight: 700;
                                     vertical-alignment: center;
@@ -518,7 +518,7 @@ export component MainWindow inherits Window {
                             spacing: 10px;
                             HorizontalLayout {
                                 Text {
-                                    text: "Sous-titres";
+                                    text: @tr("Sous-titres");
                                     color: root.fg;
                                     font-weight: 700;
                                     vertical-alignment: center;
@@ -528,14 +528,14 @@ export component MainWindow inherits Window {
                             }
                             HorizontalLayout {
                                 spacing: 6px;
-                                Text { text: "Taille"; color: root.fg-dim; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: @tr("Taille"); color: root.fg-dim; vertical-alignment: center; horizontal-stretch: 1; }
                                 ToolButton { text: "−"; dark: root.dark; width: 28px; clicked => { root.subtitle-scale-adjust(-0.1); } }
                                 Text { text: "\{round(root.subtitle-scale * 100)} %"; color: root.fg; vertical-alignment: center; }
                                 ToolButton { text: "+"; dark: root.dark; width: 28px; clicked => { root.subtitle-scale-adjust(0.1); } }
                             }
                             HorizontalLayout {
                                 spacing: 8px;
-                                Text { text: "Couleur"; color: root.fg-dim; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: @tr("Couleur"); color: root.fg-dim; vertical-alignment: center; horizontal-stretch: 1; }
                                 Rectangle {
                                     width: 26px; height: 26px; border-radius: 5px; background: #ffffff;
                                     border-width: 1px; border-color: #888888;
@@ -574,7 +574,7 @@ export component MainWindow inherits Window {
                             spacing: 6px;
                             HorizontalLayout {
                                 Text {
-                                    text: "Image";
+                                    text: @tr("Image");
                                     color: root.fg;
                                     font-weight: 700;
                                     vertical-alignment: center;
@@ -593,21 +593,21 @@ export component MainWindow inherits Window {
                                 }
                                 ToolButton { text: "✕"; dark: root.dark; clicked => { root.image-visible = false; } }
                             }
-                            Text { text: "Luminosité"; color: root.fg-dim; font-size: 11px; }
+                            Text { text: @tr("Luminosité"); color: root.fg-dim; font-size: 11px; }
                             Slider {
                                 minimum: -1.0;
                                 maximum: 1.0;
                                 value <=> root.img-brightness;
                                 changed(v) => { root.image-adjust(v, root.img-contrast, root.img-saturation); }
                             }
-                            Text { text: "Contraste"; color: root.fg-dim; font-size: 11px; }
+                            Text { text: @tr("Contraste"); color: root.fg-dim; font-size: 11px; }
                             Slider {
                                 minimum: 0.0;
                                 maximum: 2.0;
                                 value <=> root.img-contrast;
                                 changed(v) => { root.image-adjust(root.img-brightness, v, root.img-saturation); }
                             }
-                            Text { text: "Saturation"; color: root.fg-dim; font-size: 11px; }
+                            Text { text: @tr("Saturation"); color: root.fg-dim; font-size: 11px; }
                             Slider {
                                 minimum: 0.0;
                                 maximum: 3.0;
@@ -651,7 +651,7 @@ export component MainWindow inherits Window {
                         spacing: 6px;
 
                         Text {
-                            text: "Liste de lecture";
+                            text: @tr("Liste de lecture");
                             color: root.fg;
                             font-size: 14px;
                             font-weight: 700;
@@ -689,7 +689,7 @@ export component MainWindow inherits Window {
 
                         HorizontalLayout {
                             spacing: 6px;
-                            Button { text: "Ajouter…"; clicked => { root.open-files(); } }
+                            Button { text: @tr("Ajouter…"); clicked => { root.open-files(); } }
                             Button { text: "💾"; clicked => { root.playlist-save(); } }
                             Button { text: "📥"; clicked => { root.playlist-load(); } }
                         }
@@ -761,7 +761,7 @@ export component MainWindow inherits Window {
 
                     Rectangle { width: 10px; }
 
-                    Text { text: "Vitesse"; color: root.fg-dim; vertical-alignment: center; }
+                    Text { text: @tr("Vitesse"); color: root.fg-dim; vertical-alignment: center; }
                     ComboBox {
                         width: 92px;
                         model: ["0.25×", "0.50×", "0.75×", "1.00×", "1.25×", "1.50×", "2.00×", "3.00×", "4.00×"];
@@ -769,7 +769,7 @@ export component MainWindow inherits Window {
                         selected => { root.speed-selected(self.current-index); }
                     }
 
-                    Text { text: "Audio"; color: root.fg-dim; vertical-alignment: center; }
+                    Text { text: @tr("Audio"); color: root.fg-dim; vertical-alignment: center; }
                     ComboBox {
                         width: 130px;
                         model: root.audio-tracks;
@@ -777,7 +777,7 @@ export component MainWindow inherits Window {
                         selected => { root.audio-track-selected(self.current-index); }
                     }
 
-                    Text { text: "ST"; color: root.fg-dim; vertical-alignment: center; }
+                    Text { text: @tr("ST"); color: root.fg-dim; vertical-alignment: center; }
                     ComboBox {
                         width: 130px;
                         model: root.subtitle-tracks;
@@ -788,7 +788,7 @@ export component MainWindow inherits Window {
                     Text { text: root.sub-delay-text; color: root.fg-dim; vertical-alignment: center; }
                     ToolButton { text: "+"; tip: "ST plus tard"; dark: root.dark; width: 24px; clicked => { root.sub-delay-adjust(0.5); } }
 
-                    Text { text: "A/V"; color: root.fg-dim; vertical-alignment: center; }
+                    Text { text: @tr("A/V"); color: root.fg-dim; vertical-alignment: center; }
                     ToolButton { text: "−"; tip: "Audio plus tôt"; dark: root.dark; width: 24px; clicked => { root.audio-delay-adjust(-0.1); } }
                     Text { text: root.audio-delay-text; color: root.fg-dim; vertical-alignment: center; }
                     ToolButton { text: "+"; tip: "Audio plus tard"; dark: root.dark; width: 24px; clicked => { root.audio-delay-adjust(0.1); } }
