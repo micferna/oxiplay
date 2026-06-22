@@ -13,6 +13,9 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   couleurs de tout le contenu HD et HDR.
 
 ### Ajouté
+- **Lecture de vidéos web** (YouTube, Vimeo, Twitch…) via **yt-dlp** : une URL
+  de page est automatiquement résolue en flux direct si yt-dlp est installé ;
+  repli transparent sur l'URL d'origine sinon (aucune régression).
 - **Rendu vidéo GPU (expérimental, feature `gpu`)** : pipeline wgpu YUV→RGB +
   tone-mapping HDR (PQ/HLG) prêt — module `render/` compilé et vérifié en CI,
   shader WGSL validé par naga. Le câblage runtime (sortie YUV du décodeur,
