@@ -4,7 +4,7 @@
 
 use super::{ts_to_us, DemuxCommand, PacketMsg};
 use crate::audio::AudioQueue;
-use crate::player::state::{SharedState, TrackInfo};
+use crate::player::state::{ChapterInfo, SharedState, TrackInfo};
 use crate::subtitles::{embedded_ass_to_styled, CueStyle, SubtitleCue, SubtitleTrack};
 use crossbeam_channel::{Receiver, SendTimeoutError, Sender};
 use ffmpeg_the_third as ffmpeg;
@@ -65,10 +65,11 @@ fn demux_loop(
     audio_tx: Sender<PacketMsg>,
     audio_queue: Option<Arc<AudioQueue>>,
 ) -> anyhow::Result<()> {
-    let kind = crate::streaming::classify(&config.source);
+    // Normalise la source (dossier BDMV / image .iso → protocole bluray:).
+    let source = crate::streaming::normalize_source(&config.source);
+    let kind = crate::streaming::classify(&source);
     let options = crate::streaming::demux_options(kind);
-    let mut ictx =
-        ffmpeg::format::input_with_dictionary(std::path::Path::new(&config.source), options)?;
+    let mut ictx = ffmpeg::format::input_with_dictionary(std::path::Path::new(&source), options)?;
 
     let duration_us = if ictx.duration() > 0 {
         // `Input::duration` est en unités AV_TIME_BASE (µs).
@@ -206,6 +207,39 @@ fn discover_streams(
     *st.shared.audio_tracks.lock().unwrap() = audio_tracks;
     *st.shared.subtitle_tracks.lock().unwrap() = subtitle_tracks;
 
+    // Durée d'une image (pour l'avance image par image), depuis la cadence
+    // moyenne du flux vidéo.
+    if let Some(idx) = st.video_stream {
+        if let Some(stream) = ictx.stream(idx) {
+            let fps = stream.avg_frame_rate();
+            let (num, den) = (fps.numerator() as i64, fps.denominator() as i64);
+            if num > 0 && den > 0 {
+                st.shared
+                    .frame_duration_us
+                    .store(den * 1_000_000 / num, Ordering::Relaxed);
+            }
+        }
+    }
+
+    // Chapitres (points de navigation) : titre depuis les métadonnées, sinon
+    // « Chapitre N ».
+    let mut chapters = Vec::new();
+    for (i, chapter) in ictx.chapters().enumerate() {
+        let start_us = ts_to_us(chapter.start(), chapter.time_base());
+        let title = chapter
+            .metadata()
+            .get("title")
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Chapitre {}", i + 1));
+        chapters.push(ChapterInfo { start_us, title });
+    }
+    *st.shared.chapters.lock().unwrap() = chapters;
+
+    // Fiche d'informations média (affichée à la demande).
+    let duration_us = st.shared.duration_us.load(Ordering::Relaxed);
+    *st.shared.media_info.lock().unwrap() =
+        build_media_info(ictx, st.video_stream, st.audio_stream, duration_us);
+
     log::info!(
         "flux découverts : vidéo={:?} audio={:?} ({} pistes audio, {} pistes st)",
         st.video_stream,
@@ -246,6 +280,91 @@ fn owned_parameters(
         ffmpeg::ffi::avcodec_parameters_copy(owned.as_mut_ptr(), params.as_ptr());
     }
     owned
+}
+
+/// Construit la fiche d'informations média (texte multi-lignes : conteneur,
+/// codecs, résolution, HDR, débits, durée) affichée à la demande dans l'UI.
+fn build_media_info(
+    ictx: &ffmpeg::format::context::Input,
+    video: Option<usize>,
+    audio: Option<usize>,
+    duration_us: i64,
+) -> String {
+    let mut lines = vec![format!("Conteneur : {}", ictx.format().description())];
+
+    if let Some(stream) = video.and_then(|i| ictx.stream(i)) {
+        let params = stream.parameters();
+        let codec = format!("{:?}", params.id()).to_lowercase();
+        // SAFETY : le codecpar est valide tant que le conteneur vit ; on lit
+        // seulement des champs scalaires documentés, en lecture seule.
+        let (w, h, br, trc) = unsafe {
+            let p = params.as_ptr();
+            ((*p).width, (*p).height, (*p).bit_rate, (*p).color_trc)
+        };
+        let fps = stream.avg_frame_rate();
+        let fps_str = if fps.numerator() > 0 && fps.denominator() > 0 {
+            format!(
+                ", {:.2} i/s",
+                fps.numerator() as f64 / fps.denominator() as f64
+            )
+        } else {
+            String::new()
+        };
+        lines.push(format!(
+            "Vidéo : {codec}, {w}×{h}{fps_str}, {}",
+            fmt_bitrate(br)
+        ));
+        let hdr = trc == ffmpeg::ffi::AVColorTransferCharacteristic::SMPTE2084
+            || trc == ffmpeg::ffi::AVColorTransferCharacteristic::ARIB_STD_B67;
+        if hdr {
+            lines.push("Dynamique : HDR (PQ/HLG)".to_string());
+        }
+    }
+
+    if let Some(stream) = audio.and_then(|i| ictx.stream(i)) {
+        let params = stream.parameters();
+        let codec = format!("{:?}", params.id()).to_lowercase();
+        let (chans, rate, br) = unsafe {
+            let p = params.as_ptr();
+            ((*p).ch_layout.nb_channels, (*p).sample_rate, (*p).bit_rate)
+        };
+        lines.push(format!(
+            "Audio : {codec}, {}, {rate} Hz, {}",
+            channel_label(chans),
+            fmt_bitrate(br)
+        ));
+    }
+
+    if duration_us > 0 {
+        lines.push(format!(
+            "Durée : {}",
+            crate::utils::format_time(duration_us)
+        ));
+    }
+
+    lines.join("\n")
+}
+
+/// Formate un débit binaire (≤ 0 = inconnu).
+fn fmt_bitrate(bits_per_sec: i64) -> String {
+    if bits_per_sec <= 0 {
+        "débit inconnu".to_string()
+    } else if bits_per_sec >= 1_000_000 {
+        format!("{:.1} Mb/s", bits_per_sec as f64 / 1_000_000.0)
+    } else {
+        format!("{} kb/s", bits_per_sec / 1000)
+    }
+}
+
+/// Libellé lisible d'un nombre de canaux audio.
+fn channel_label(channels: i32) -> String {
+    match channels {
+        1 => "mono".to_string(),
+        2 => "stéréo".to_string(),
+        6 => "5.1".to_string(),
+        8 => "7.1".to_string(),
+        n => format!("{n} canaux"),
+    }
 }
 
 fn handle_command(

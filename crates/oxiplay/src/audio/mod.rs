@@ -10,6 +10,7 @@ use crate::player::state::SharedState;
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::collections::VecDeque;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 /// File d'échantillons stéréo entrelacés, horodatée.
@@ -71,12 +72,45 @@ pub struct AudioOutput {
 }
 
 impl AudioOutput {
+    /// Liste les noms des périphériques de sortie disponibles (vide si aucun
+    /// ou en cas d'erreur d'énumération).
+    pub fn list_output_devices() -> Vec<String> {
+        cpal::default_host()
+            .output_devices()
+            .map(|devices| {
+                devices
+                    .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Ouvre le périphérique de sortie par défaut.
     pub fn new() -> Result<Self> {
+        Self::new_with_device(None)
+    }
+
+    /// Ouvre un périphérique de sortie par son nom ; repli sur le périphérique
+    /// par défaut si le nom est inconnu ou absent.
+    pub fn new_with_device(name: Option<&str>) -> Result<Self> {
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .context("aucun périphérique de sortie audio")?;
+        let device = match name {
+            Some(wanted) => host
+                .output_devices()
+                .ok()
+                .and_then(|mut devices| {
+                    devices.find(|d| {
+                        d.description()
+                            .map(|desc| desc.name() == wanted)
+                            .unwrap_or(false)
+                    })
+                })
+                .or_else(|| host.default_output_device())
+                .context("aucun périphérique de sortie audio")?,
+            None => host
+                .default_output_device()
+                .context("aucun périphérique de sortie audio")?,
+        };
         let config = device
             .default_output_config()
             .context("configuration audio par défaut indisponible")?;
@@ -196,6 +230,9 @@ fn render_audio<T>(
 
     let volume = shared.effective_volume();
     let speed = shared.speed();
+    // Décalage de synchronisation A/V : décale le PTS rapporté à l'horloge
+    // maîtresse, donc la vidéo par rapport à l'audio réellement entendu.
+    let audio_delay = shared.audio_delay_us.load(Ordering::Relaxed);
     let mut inner = queue.inner.lock().unwrap();
     let mut consumed_frames = 0usize;
 
@@ -228,7 +265,7 @@ fn render_audio<T>(
         inner.front_pts_us += advance_us;
         let pts = inner.front_pts_us;
         drop(inner);
-        // L'audio pilote l'horloge maîtresse.
-        shared.clock.sync_to(pts);
+        // L'audio pilote l'horloge maîtresse (avec le décalage A/V utilisateur).
+        shared.clock.sync_to(pts + audio_delay);
     }
 }

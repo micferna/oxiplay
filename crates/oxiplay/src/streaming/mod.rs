@@ -20,6 +20,9 @@ pub enum StreamKind {
     Rtsp,
     /// Flux IPTV (UDP/RTP multicast ou listes M3U distantes).
     Iptv,
+    /// Disque, dossier BDMV ou image `.iso` Blu-ray, lu via le protocole
+    /// `bluray:` de libbluray (titre principal le plus long par défaut).
+    BluRay,
 }
 
 /// Retourne `true` si la chaîne ressemble à une URL plutôt qu'à un chemin local.
@@ -32,9 +35,35 @@ pub fn is_url(input: &str) -> bool {
     .any(|p| lower.starts_with(p))
 }
 
-/// Classifie une source (chemin local ou URL).
+/// Normalise une source en URL ouvrable par libavformat.
+///
+/// Les **dossiers BDMV** (un répertoire contenant `BDMV/`) et les **images
+/// disque `.iso`** sont préfixés par le protocole `bluray:` de libbluray ;
+/// tout le reste (fichiers, URL, sources déjà préfixées) est renvoyé tel quel.
+///
+/// Note : les disques Blu-ray **commerciaux chiffrés** (AACS, et a fortiori
+/// l'AACS 2.0 des UHD 4K) nécessitent des clés que ce lecteur ne fournit pas —
+/// seuls les disques/dossiers/images **non chiffrés** sont lisibles.
+pub fn normalize_source(input: &str) -> String {
+    if input.starts_with("bluray:") || is_url(input) {
+        return input.to_string();
+    }
+    let lower = input.to_ascii_lowercase();
+    let path = std::path::Path::new(input);
+    let is_bdmv_dir = path.is_dir() && path.join("BDMV").is_dir();
+    if lower.ends_with(".iso") || is_bdmv_dir {
+        format!("bluray:{input}")
+    } else {
+        input.to_string()
+    }
+}
+
+/// Classifie une source (chemin local, URL ou disque Blu-ray).
 pub fn classify(input: &str) -> StreamKind {
     let lower = input.to_ascii_lowercase();
+    if lower.starts_with("bluray:") {
+        return StreamKind::BluRay;
+    }
     if !is_url(&lower) {
         return StreamKind::Local;
     }
@@ -69,7 +98,8 @@ pub fn classify(input: &str) -> StreamKind {
 pub fn demux_options(kind: StreamKind) -> Dictionary {
     let mut opts = Dictionary::new();
     match kind {
-        StreamKind::Local => {}
+        // Sources locales (fichier ou disque Blu-ray) : aucune option réseau.
+        StreamKind::Local | StreamKind::BluRay => {}
         StreamKind::Http | StreamKind::Hls => {
             // Liste blanche : pas de `file`, `concat`, `subfile`… depuis un
             // flux distant. `crypto`/`tls` couvrent HTTPS et HLS-AES.
@@ -160,6 +190,32 @@ mod tests {
     fn local_source_is_unrestricted() {
         // L'utilisateur ouvre ses propres fichiers : pas de liste blanche.
         assert!(demux_options(StreamKind::Local)
+            .get("protocol_whitelist")
+            .is_none());
+    }
+
+    #[test]
+    fn bluray_sources() {
+        assert_eq!(classify("bluray:/dev/sr0"), StreamKind::BluRay);
+        assert_eq!(classify("BLURAY:/mnt/disc"), StreamKind::BluRay);
+        // Une image .iso est routée vers le protocole bluray (casse préservée).
+        assert_eq!(
+            normalize_source("/films/disc.iso"),
+            "bluray:/films/disc.iso"
+        );
+        assert_eq!(
+            normalize_source("/films/DISQUE.ISO"),
+            "bluray:/films/DISQUE.ISO"
+        );
+        // Sources déjà préfixées, URL ou fichier ordinaire : inchangées.
+        assert_eq!(normalize_source("bluray:/dev/sr0"), "bluray:/dev/sr0");
+        assert_eq!(
+            normalize_source("https://ex.com/v.mp4"),
+            "https://ex.com/v.mp4"
+        );
+        assert_eq!(normalize_source("/films/movie.mkv"), "/films/movie.mkv");
+        // Le Blu-ray est local : pas de liste blanche réseau.
+        assert!(demux_options(StreamKind::BluRay)
             .get("protocol_whitelist")
             .is_none());
     }

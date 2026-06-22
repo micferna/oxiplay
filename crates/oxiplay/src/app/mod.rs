@@ -6,11 +6,14 @@
 //! callbacks de livraison d'images traversent les threads.
 
 use crate::audio::AudioOutput;
+use crate::inhibit::Inhibitor;
+use crate::media_controls::MediaKeys;
 use crate::player::state::TrackInfo;
 use crate::player::{AudioSink, FrameSink, PlayerEngine};
-use crate::playlist::{Playlist, PlaylistItem};
-use crate::settings::Settings;
+use crate::playlist::{Playlist, PlaylistItem, RepeatMode};
+use crate::settings::{MediaState, Settings};
 use crate::ui::{frame_to_image, MainWindow, PlaylistEntry};
+use crate::update::UpdateChecker;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,7 +27,7 @@ pub const SPEED_NORMAL_INDEX: i32 = 3;
 /// Filtres de fichiers des boîtes de dialogue.
 const MEDIA_EXTENSIONS: &[&str] = &[
     "mp4", "mkv", "avi", "mov", "webm", "mpg", "mpeg", "flv", "ts", "m2ts", "wmv", "ogv", "mp3",
-    "flac", "wav", "ogg", "oga", "aac", "m4a", "opus", "wma",
+    "flac", "wav", "ogg", "oga", "aac", "m4a", "opus", "wma", "iso",
 ];
 const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "vtt"];
 
@@ -41,12 +44,51 @@ pub struct App {
     /// Correspondance index de combo → index de flux, pour chaque liste.
     audio_track_streams: Vec<usize>,
     subtitle_track_streams: Vec<usize>,
+    /// Nombre de chapitres actuellement reflétés dans l'UI (détection de
+    /// changement de média).
+    chapter_count: usize,
     sub_delay_secs: f64,
     muted: bool,
     speed_index: i32,
     /// Taille de fenêtre (logique) avant le passage en mini-lecteur.
     pre_mini_size: Option<(f32, f32)>,
+    /// Mode de répétition courant (boucle off / liste / média).
+    repeat_mode: RepeatMode,
+    /// Décalage de synchronisation audio/vidéo (secondes).
+    audio_delay_secs: f64,
+    /// Inhibiteur de mise en veille / d'économiseur d'écran (actif en lecture).
+    inhibitor: Inhibitor,
+    /// Contrôles média du bureau (touches multimédia, MPRIS/SMTC/Now Playing).
+    media_keys: MediaKeys,
+    /// État pour le calcul du FPS du HUD de statistiques.
+    last_stats_at: std::time::Instant,
+    last_frames_presented: u64,
+    last_frames_dropped: u64,
+    /// Sélections de pistes à restaurer dès que le demuxeur a découvert les
+    /// pistes du média rouvert (mémoire par fichier).
+    pending_audio_track: Option<i32>,
+    pending_subtitle_track: Option<i32>,
+    /// Noms des périphériques de sortie audio (index de combo → nom).
+    audio_device_names: Vec<String>,
+    /// Vérificateur de mise à jour (lancé au démarrage selon les réglages).
+    update_checker: UpdateChecker,
+    /// URL de la release disponible, le cas échéant.
+    update_url: Option<String>,
 }
+
+/// Préréglages d'égaliseur (gains dB, ordre [`crate::decoder::EQ_FREQUENCIES`] :
+/// 31 62 125 250 500 1k 2k 4k 8k 16k). L'index 0 « Manuel » conserve les
+/// réglages courants ; l'ordre doit suivre le ComboBox de `main.slint`.
+const EQ_PRESETS: &[[f32; 10]] = &[
+    [0.0; 10],                                             // Manuel (no-op)
+    [0.0; 10],                                             // Plat
+    [5.0, 4.0, 3.0, 1.0, -0.5, -0.5, 1.0, 3.0, 4.0, 4.5],  // Rock
+    [-1.0, 0.0, 1.0, 2.5, 3.5, 3.5, 2.0, 0.5, -0.5, -1.0], // Pop
+    [3.0, 2.0, 1.0, 2.0, -1.0, -1.0, 0.0, 1.0, 2.0, 3.0],  // Jazz
+    [4.0, 3.0, 2.0, 1.0, -0.5, -0.5, 0.0, 1.5, 2.5, 3.5],  // Classique
+    [6.0, 5.0, 4.0, 2.5, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],    // Graves+
+    [-2.0, -1.0, 0.0, 2.0, 4.0, 4.0, 3.0, 1.5, 0.5, 0.0],  // Voix
+];
 
 impl App {
     pub fn new(ui: Weak<MainWindow>) -> Self {
@@ -67,16 +109,34 @@ impl App {
             ui_busy: Arc::new(AtomicBool::new(false)),
             audio_track_streams: Vec::new(),
             subtitle_track_streams: Vec::new(),
+            chapter_count: 0,
             sub_delay_secs: settings.subtitle_delay_secs as f64,
             muted: false,
             speed_index: SPEED_NORMAL_INDEX,
             pre_mini_size: None,
+            repeat_mode: RepeatMode::Off,
+            audio_delay_secs: settings.audio_delay_secs as f64,
+            inhibitor: Inhibitor::new(),
+            media_keys: MediaKeys::new(),
+            last_stats_at: std::time::Instant::now(),
+            last_frames_presented: 0,
+            last_frames_dropped: 0,
+            pending_audio_track: None,
+            pending_subtitle_track: None,
+            audio_device_names: AudioOutput::list_output_devices(),
+            update_checker: if settings.check_updates {
+                UpdateChecker::spawn()
+            } else {
+                UpdateChecker::disabled()
+            },
+            update_url: None,
             settings,
         };
         if let Some(ui) = app.ui.upgrade() {
             ui.set_volume(app.settings.volume);
             ui.set_dark(app.settings.dark_theme);
             ui.set_sub_delay_text(format_delay(app.sub_delay_secs));
+            ui.set_audio_delay_text(format_delay(app.audio_delay_secs));
             ui.set_eq_frequencies(string_model(
                 crate::decoder::EQ_FREQUENCIES
                     .iter()
@@ -90,6 +150,9 @@ impl App {
                     .collect(),
             ));
             ui.set_eq_gains(float_model(&app.settings.equalizer_gains));
+            ui.set_subtitle_scale(app.settings.subtitle_scale);
+            ui.set_audio_devices(string_model(app.audio_device_names.clone()));
+            app.refresh_recent(&ui);
         }
         app
     }
@@ -120,11 +183,21 @@ impl App {
             out.attach(Arc::clone(&engine.shared));
         }
 
+        // Mémoire par fichier : restaure la vitesse et prépare la restauration
+        // des pistes (appliquée dès que le demuxeur les a découvertes).
+        let saved = self.settings.media_state(source);
+        if let Some(st) = &saved {
+            self.speed_index = st.speed_index.clamp(0, SPEEDS.len() as i32 - 1);
+        }
+        self.pending_audio_track = saved.as_ref().map(|s| s.audio_track);
+        self.pending_subtitle_track = saved.as_ref().map(|s| s.subtitle_track);
+
         // Applique l'état utilisateur courant à la nouvelle session.
         engine.set_volume(self.settings.volume);
         engine.set_muted(self.muted);
         engine.set_speed(SPEEDS[self.speed_index as usize]);
         engine.set_subtitle_delay(self.sub_delay_secs);
+        engine.set_audio_delay(self.audio_delay_secs);
         engine.set_equalizer(self.settings.equalizer_gains);
 
         self.engine = Some(engine);
@@ -132,6 +205,8 @@ impl App {
         self.settings.push_history(source);
         self.audio_track_streams.clear();
         self.subtitle_track_streams.clear();
+        self.chapter_count = 0;
+        self.media_keys.set_metadata(title, 0);
 
         if let Some(ui) = self.ui.upgrade() {
             ui.set_media_title(title.into());
@@ -146,6 +221,8 @@ impl App {
             ui.set_audio_tracks(string_model(vec![]));
             ui.set_subtitle_tracks(string_model(vec!["Désactivés".into()]));
             ui.set_subtitle_track_index(0);
+            ui.set_speed_index(self.speed_index);
+            self.refresh_recent(&ui);
         }
         log::info!("ouverture de {source}");
     }
@@ -183,6 +260,17 @@ impl App {
                         engine.position_us(),
                         engine.duration_us(),
                     );
+                    // Mémorise pistes + vitesse pour ce fichier.
+                    if let Some(ui) = self.ui.upgrade() {
+                        self.settings.remember_media_state(
+                            source,
+                            MediaState {
+                                speed_index: self.speed_index,
+                                audio_track: ui.get_audio_track_index(),
+                                subtitle_track: ui.get_subtitle_track_index(),
+                            },
+                        );
+                    }
                 }
             }
             if let Some(out) = &self.audio {
@@ -191,6 +279,8 @@ impl App {
             drop(engine);
         }
         self.current_source = None;
+        // Plus de lecture : on lève l'inhibition de veille.
+        self.inhibitor.set(false);
         if let Some(ui) = self.ui.upgrade() {
             ui.set_has_video(false);
             ui.set_media_loaded(false);
@@ -217,6 +307,30 @@ impl App {
         }
     }
 
+    /// Applique une commande reçue des contrôles média du bureau (touches
+    /// multimédia, MPRIS…).
+    fn apply_media_event(&mut self, event: souvlaki::MediaControlEvent) {
+        use souvlaki::{MediaControlEvent as E, SeekDirection};
+        match event {
+            E::Play => match &self.engine {
+                Some(e) => e.set_paused(false),
+                None => self.play_pause(),
+            },
+            E::Pause => {
+                if let Some(e) = &self.engine {
+                    e.set_paused(true);
+                }
+            }
+            E::Toggle => self.play_pause(),
+            E::Next => self.next(),
+            E::Previous => self.previous(),
+            E::Stop => self.stop(),
+            E::Seek(SeekDirection::Forward) => self.seek_relative(10.0),
+            E::Seek(SeekDirection::Backward) => self.seek_relative(-10.0),
+            _ => {}
+        }
+    }
+
     pub fn stop(&mut self) {
         self.stop_current(true);
         if let Some(ui) = self.ui.upgrade() {
@@ -236,6 +350,33 @@ impl App {
     pub fn seek_relative(&mut self, delta_secs: f32) {
         if let Some(engine) = &self.engine {
             engine.seek_relative(delta_secs as f64);
+        }
+    }
+
+    /// Saute au début d'un chapitre (sélection dans la liste déroulante).
+    pub fn select_chapter(&mut self, index: i32) {
+        if let Some(engine) = &self.engine {
+            let target = engine
+                .shared
+                .chapters
+                .lock()
+                .unwrap()
+                .get(index.max(0) as usize)
+                .map(|c| c.start_us);
+            if let Some(t) = target {
+                engine.seek(t);
+            }
+        }
+    }
+
+    /// Avance ou recule d'une image. Met d'abord en pause (le pas-à-pas n'a de
+    /// sens qu'à l'arrêt sur image).
+    pub fn step_frame(&mut self, forward: bool) {
+        if let Some(engine) = &self.engine {
+            if !engine.is_paused() {
+                engine.set_paused(true);
+            }
+            engine.step_frame(forward);
         }
     }
 
@@ -287,6 +428,59 @@ impl App {
         }
     }
 
+    /// Cycle la rotation d'affichage (0 → 90 → 180 → 270°).
+    pub fn cycle_rotation(&mut self) {
+        let Some(engine) = &self.engine else { return };
+        let next = (engine.shared.rotation.load(Ordering::Relaxed) + 1) % 4;
+        engine.shared.rotation.store(next, Ordering::Relaxed);
+        // Applique tout de suite, même en pause (seek sur place → nouvel aperçu).
+        if engine.is_paused() {
+            engine.seek(engine.position_us());
+        }
+        self.set_status(match next {
+            1 => "Rotation : 90°",
+            2 => "Rotation : 180°",
+            3 => "Rotation : 270°",
+            _ => "Rotation : aucune",
+        });
+    }
+
+    /// Applique les réglages d'image (luminosité −1..1, contraste 0..2,
+    /// saturation 0..3) via le filtre `eq`. Effet immédiat, même en pause.
+    pub fn set_image_adjust(&mut self, brightness: f32, contrast: f32, saturation: f32) {
+        let Some(engine) = &self.engine else { return };
+        let s = &engine.shared;
+        s.brightness_milli.store(
+            (brightness.clamp(-1.0, 1.0) * 1000.0) as i32,
+            Ordering::Relaxed,
+        );
+        s.contrast_milli.store(
+            (contrast.clamp(0.0, 2.0) * 1000.0) as i32,
+            Ordering::Relaxed,
+        );
+        s.saturation_milli.store(
+            (saturation.clamp(0.0, 3.0) * 1000.0) as i32,
+            Ordering::Relaxed,
+        );
+        if engine.is_paused() {
+            engine.seek(engine.position_us());
+        }
+    }
+
+    /// Affiche/masque le HUD de statistiques (FPS, images sautées, A/V).
+    pub fn toggle_stats(&mut self) {
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_stats_visible(!ui.get_stats_visible());
+        }
+    }
+
+    /// Ouvre la page de la mise à jour disponible dans le navigateur.
+    pub fn open_update(&mut self) {
+        if let Some(url) = &self.update_url {
+            crate::update::open_in_browser(url);
+        }
+    }
+
     /// Bascule le mini-lecteur : fenêtre compacte sans habillage (équivalent
     /// bureau du Picture-in-Picture). Slint n'expose pas l'« always-on-top »
     /// dans son API publique ; on fournit la fenêtre réduite.
@@ -329,6 +523,19 @@ impl App {
         }
     }
 
+    /// Cycle le mode de répétition (Off → Tous → Un) et le reflète dans l'UI.
+    pub fn cycle_repeat(&mut self) {
+        self.repeat_mode = self.repeat_mode.cycled();
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_repeat_mode(self.repeat_mode.as_index());
+        }
+        self.set_status(match self.repeat_mode {
+            RepeatMode::Off => "Répétition : désactivée",
+            RepeatMode::All => "Répétition : toute la liste",
+            RepeatMode::One => "Répétition : média courant",
+        });
+    }
+
     // ---- Playlist ----------------------------------------------------------
 
     /// Ajoute des sources (fichiers ou URL) ; lance la lecture si rien
@@ -363,17 +570,40 @@ impl App {
         );
     }
 
+    /// Ouvre un dossier ou disque Blu-ray (structure BDMV). Le chemin est
+    /// transformé en source `bluray:` à l'ouverture (voir
+    /// [`crate::streaming::normalize_source`]). Les disques **chiffrés**
+    /// (AACS, UHD 4K) ne sont pas pris en charge (clés non fournies).
+    pub fn open_bluray_dialog(&mut self) {
+        if let Some(dir) = rfd::FileDialog::new()
+            .set_title("Ouvrir un dossier ou disque Blu-ray (BDMV)")
+            .pick_folder()
+        {
+            self.add_sources(vec![dir.to_string_lossy().into_owned()]);
+        }
+    }
+
     pub fn open_url(&mut self, url: &str) {
         let url = url.trim();
         if url.is_empty() {
             return;
         }
-        if !crate::streaming::is_url(url) {
-            self.set_status("URL non reconnue (http, https, rtsp, udp…)");
+        if !crate::streaming::is_url(url) && !url.starts_with("bluray:") {
+            self.set_status("URL non reconnue (http, https, rtsp, udp, bluray…)");
             return;
         }
         let index = self.playlist.add(PlaylistItem::new(url));
         self.playlist.select(index);
+        self.open_current();
+    }
+
+    /// Ouvre une entrée de l'historique de lecture (fichiers récents).
+    pub fn open_recent(&mut self, index: i32) {
+        let Some(source) = self.settings.history.get(index.max(0) as usize).cloned() else {
+            return;
+        };
+        let idx = self.playlist.add(PlaylistItem::new(source));
+        self.playlist.select(idx);
         self.open_current();
     }
 
@@ -446,6 +676,18 @@ impl App {
         ui.set_playlist_entries(ModelRc::from(Rc::new(VecModel::from(entries))));
     }
 
+    /// Met à jour la liste déroulante des fichiers récents (libellés lisibles)
+    /// depuis l'historique persistant.
+    fn refresh_recent(&self, ui: &MainWindow) {
+        let labels = self
+            .settings
+            .history
+            .iter()
+            .map(|s| crate::utils::display_name(s))
+            .collect();
+        ui.set_recent_files(string_model(labels));
+    }
+
     // ---- Pistes & sous-titres ---------------------------------------------
 
     pub fn select_audio_track(&mut self, combo_index: i32) {
@@ -454,6 +696,31 @@ impl App {
             self.audio_track_streams.get(combo_index.max(0) as usize),
         ) {
             engine.select_audio_track(stream);
+        }
+    }
+
+    /// Change le périphérique de sortie audio. La sortie est reconstruite et,
+    /// si une lecture est en cours, le média est rouvert à la même position
+    /// (le décodeur audio se reconfigure à la fréquence du nouveau matériel).
+    pub fn select_audio_device(&mut self, combo_index: i32) {
+        let Some(name) = self
+            .audio_device_names
+            .get(combo_index.max(0) as usize)
+            .cloned()
+        else {
+            return;
+        };
+        let was_playing = self.engine.is_some();
+        self.stop_current(true);
+        match AudioOutput::new_with_device(Some(&name)) {
+            Ok(out) => {
+                self.audio = Some(out);
+                self.set_status(&format!("Sortie audio : {name}"));
+            }
+            Err(e) => self.set_status(&format!("Périphérique audio indisponible : {e}")),
+        }
+        if was_playing {
+            self.open_current();
         }
     }
 
@@ -501,6 +768,34 @@ impl App {
         }
     }
 
+    /// Ajuste la taille des sous-titres (× 0.5 à × 2.5), persistée.
+    pub fn adjust_subtitle_scale(&mut self, delta: f32) {
+        self.settings.subtitle_scale = (self.settings.subtitle_scale + delta).clamp(0.5, 2.5);
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_subtitle_scale(self.settings.subtitle_scale);
+        }
+    }
+
+    /// Force une couleur de sous-titres (`0xRRGGBB`), ou suit le style ASS
+    /// d'origine si `code < 0`. Persisté ; appliqué au prochain rafraîchissement.
+    pub fn set_subtitle_color(&mut self, code: i32) {
+        self.settings.subtitle_color = if code < 0 { None } else { Some(code as u32) };
+    }
+
+    /// Ajuste le décalage de synchronisation audio/vidéo (± secondes,
+    /// positif = audio retardé par rapport à la vidéo), l'applique et le
+    /// persiste.
+    pub fn adjust_audio_delay(&mut self, delta_secs: f32) {
+        self.audio_delay_secs = (self.audio_delay_secs + delta_secs as f64).clamp(-30.0, 30.0);
+        self.settings.audio_delay_secs = self.audio_delay_secs as f32;
+        if let Some(engine) = &self.engine {
+            engine.set_audio_delay(self.audio_delay_secs);
+        }
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_audio_delay_text(format_delay(self.audio_delay_secs));
+        }
+    }
+
     // ---- Égaliseur --------------------------------------------------------
 
     /// Modifie le gain d'une bande de l'égaliseur (dB), l'applique en direct
@@ -514,6 +809,24 @@ impl App {
         self.settings.equalizer_gains[band] = gain;
         if let Some(engine) = &self.engine {
             engine.set_equalizer_band(band, gain);
+        }
+    }
+
+    /// Applique un préréglage d'égaliseur (voir `EQ_PRESETS`). L'index 0
+    /// « Manuel » conserve les réglages courants.
+    pub fn apply_eq_preset(&mut self, index: i32) {
+        if index <= 0 {
+            return; // « Manuel » : ne touche pas aux gains actuels.
+        }
+        let Some(gains) = EQ_PRESETS.get(index as usize) else {
+            return;
+        };
+        self.settings.equalizer_gains = *gains;
+        if let Some(engine) = &self.engine {
+            engine.set_equalizer(*gains);
+        }
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_eq_gains(float_model(&self.settings.equalizer_gains));
         }
     }
 
@@ -534,13 +847,32 @@ impl App {
     /// l'état du moteur et gère l'enchaînement automatique de la playlist.
     pub fn tick(&mut self) {
         let Some(ui) = self.ui.upgrade() else { return };
-        let Some(engine) = &self.engine else { return };
+
+        // Commandes des contrôles média du bureau (touches multimédia, MPRIS).
+        for event in self.media_keys.poll() {
+            self.apply_media_event(event);
+        }
+
+        // Mise à jour disponible ? (résultat du thread de vérification.)
+        if let Some(info) = self.update_checker.poll() {
+            self.update_url = Some(info.url);
+            ui.set_update_version(info.version.clone().into());
+            self.set_status(&format!("Mise à jour disponible : v{}", info.version));
+        }
+
+        let Some(engine) = &self.engine else {
+            // Rien en lecture : statut « arrêté » pour le bureau.
+            self.media_keys.set_playback(false, true);
+            return;
+        };
         // Copie locale pour libérer l'emprunt de `self.engine` (les méthodes
         // appelées plus bas reprennent `&mut self`).
         let shared = Arc::clone(&engine.shared);
         let duration = engine.duration_us();
         let mut position = engine.position_us();
         let paused = engine.is_paused();
+        // Reflète l'état de lecture dans les contrôles du bureau.
+        self.media_keys.set_playback(!paused, false);
 
         // Erreur fatale d'un thread → on l'affiche et on passe au suivant.
         if let Some(error) = shared.error.lock().unwrap().take() {
@@ -575,9 +907,11 @@ impl App {
             ui.set_subtitle_align(style.align as i32);
             ui.set_subtitle_bold(style.bold);
             ui.set_subtitle_italic(style.italic);
+            // La couleur forcée par l'utilisateur prime sur celle du style ASS.
             ui.set_subtitle_color(
-                style
-                    .color
+                self.settings
+                    .subtitle_color
+                    .or(style.color)
                     .map(slint_color)
                     .unwrap_or_else(|| slint::Color::from_rgb_u8(255, 255, 255)),
             );
@@ -586,20 +920,61 @@ impl App {
             ui.set_subtitle_text(subtitle.into());
         }
 
+        // Empêche l'écran de s'éteindre pendant la lecture d'une vidéo.
+        self.inhibitor
+            .set(!paused && shared.has_video.load(Ordering::Relaxed));
+
+        // HUD de statistiques : FPS calculé sur ~0,5 s glissant.
+        let stats_dt = self.last_stats_at.elapsed().as_secs_f64();
+        if stats_dt >= 0.5 {
+            let presented = shared.frames_presented.load(Ordering::Relaxed);
+            let dropped = shared.frames_dropped.load(Ordering::Relaxed);
+            let fps = presented.saturating_sub(self.last_frames_presented) as f64 / stats_dt;
+            let dropped_delta = dropped.saturating_sub(self.last_frames_dropped);
+            self.last_frames_presented = presented;
+            self.last_frames_dropped = dropped;
+            self.last_stats_at = std::time::Instant::now();
+            let av_ms = shared.last_av_delta_us.load(Ordering::Relaxed) as f64 / 1000.0;
+            ui.set_stats_text(
+                format!("FPS {fps:.1}   sautées {dropped} (+{dropped_delta})   A/V {av_ms:+.0} ms")
+                    .into(),
+            );
+        }
+
         self.refresh_track_lists(&ui);
 
-        // Fin du média : enchaîne sur la playlist.
+        // Fiche d'informations média (mise à jour quand elle change).
+        let info = shared.media_info.lock().unwrap().clone();
+        if !info.is_empty() && ui.get_media_info_text().as_str() != info {
+            ui.set_media_info_text(info.into());
+        }
+
+        // Fin du média : répétition, ou enchaînement sur la playlist.
         if shared.playback_finished() {
             if let Some(source) = &self.current_source {
                 // Lecture terminée : on oublie la position de reprise.
                 self.settings
                     .remember_position(source, duration, duration.max(1));
             }
-            if self.playlist.advance().is_some() {
-                self.open_current();
-            } else {
-                self.stop_current(false);
-                ui.set_status_text("Fin de la liste de lecture".into());
+            match self.repeat_mode {
+                // Rejoue le média courant.
+                RepeatMode::One => self.open_current(),
+                // Avance, en bouclant au début après la dernière entrée.
+                RepeatMode::All => {
+                    if self.playlist.advance().is_none() {
+                        self.playlist.select(0);
+                    }
+                    self.open_current();
+                }
+                // Comportement par défaut : suivant, sinon arrêt.
+                RepeatMode::Off => {
+                    if self.playlist.advance().is_some() {
+                        self.open_current();
+                    } else {
+                        self.stop_current(false);
+                        ui.set_status_text("Fin de la liste de lecture".into());
+                    }
+                }
             }
         }
     }
@@ -611,17 +986,60 @@ impl App {
         let audio_tracks = engine.shared.audio_tracks.lock().unwrap().clone();
         if audio_tracks.len() != self.audio_track_streams.len() {
             self.audio_track_streams = audio_tracks.iter().map(|t| t.stream_index).collect();
+            let n = self.audio_track_streams.len();
             ui.set_audio_tracks(track_labels(&audio_tracks));
-            ui.set_audio_track_index(0);
+            // Restaure la piste mémorisée pour ce fichier, sinon la première.
+            let idx = self
+                .pending_audio_track
+                .take()
+                .filter(|&i| i > 0 && (i as usize) < n)
+                .unwrap_or(0);
+            ui.set_audio_track_index(idx);
+            if idx > 0 {
+                if let Some(&stream) = self.audio_track_streams.get(idx as usize) {
+                    engine.select_audio_track(stream);
+                }
+            }
         }
 
         let sub_tracks = engine.shared.subtitle_tracks.lock().unwrap().clone();
         if sub_tracks.len() != self.subtitle_track_streams.len() {
             self.subtitle_track_streams = sub_tracks.iter().map(|t| t.stream_index).collect();
+            let n = self.subtitle_track_streams.len();
             let mut labels = vec!["Désactivés".to_string()];
             labels.extend(sub_tracks.iter().enumerate().map(|(i, t)| t.label(i)));
             ui.set_subtitle_tracks(string_model(labels));
-            ui.set_subtitle_track_index(0);
+            // Restaure les sous-titres mémorisés (combo : 0 = désactivés).
+            let idx = self
+                .pending_subtitle_track
+                .take()
+                .filter(|&i| i > 0 && (i as usize) <= n)
+                .unwrap_or(0);
+            ui.set_subtitle_track_index(idx);
+            if idx > 0 {
+                if let Some(&stream) = self.subtitle_track_streams.get(idx as usize - 1) {
+                    *engine.shared.external_subtitles.lock().unwrap() = None;
+                    engine.select_subtitle_track(Some(stream));
+                }
+            }
+        }
+
+        let chapters = engine.shared.chapters.lock().unwrap().clone();
+        if chapters.len() != self.chapter_count {
+            self.chapter_count = chapters.len();
+            let labels = chapters
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    format!(
+                        "{}. {} ({})",
+                        i + 1,
+                        c.title,
+                        crate::utils::format_time(c.start_us)
+                    )
+                })
+                .collect();
+            ui.set_chapters(string_model(labels));
         }
     }
 

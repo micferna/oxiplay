@@ -186,6 +186,17 @@ impl PlayerEngine {
         self.seek(target);
     }
 
+    /// Avance ou recule d'une image (pas-à-pas, utile en pause). S'appuie sur
+    /// le seek avec aperçu ; le pas vient de la cadence du flux (repli ~24 i/s).
+    pub fn step_frame(&self, forward: bool) {
+        let step = match self.shared.frame_duration_us.load(Ordering::Relaxed) {
+            d if d > 0 => d,
+            _ => 41_667,
+        };
+        let delta = if forward { step } else { -step };
+        self.seek(self.position_us() + delta);
+    }
+
     /// Vitesse de lecture (0.25 à 4.0). La hauteur est préservée (filtre
     /// `atempo` du graphe audio).
     pub fn set_speed(&self, speed: f64) {
@@ -231,6 +242,14 @@ impl PlayerEngine {
     pub fn set_subtitle_delay(&self, delay_secs: f64) {
         self.shared
             .subtitle_delay_us
+            .store((delay_secs * 1_000_000.0) as i64, Ordering::Relaxed);
+    }
+
+    /// Décalage de synchronisation audio/vidéo en secondes (positif = audio
+    /// retardé par rapport à la vidéo).
+    pub fn set_audio_delay(&self, delay_secs: f64) {
+        self.shared
+            .audio_delay_us
             .store((delay_secs * 1_000_000.0) as i64, Ordering::Relaxed);
     }
 }
@@ -309,6 +328,7 @@ fn run_presenter(
 
         let now = shared.clock.now_us();
         let delta = frame.pts_us - now;
+        shared.last_av_delta_us.store(delta, Ordering::Relaxed);
         if delta > EARLY_SHOW_US {
             // Trop tôt : dort (en temps mural) puis réévalue.
             let speed = shared.speed().max(0.25);
@@ -319,6 +339,7 @@ fn run_presenter(
         }
         if delta < -LATE_DROP_US && !first_of_generation {
             // Trop tard : image sautée pour rattraper l'horloge.
+            shared.frames_dropped.fetch_add(1, Ordering::Relaxed);
             log::trace!("image en retard de {} ms, sautée", -delta / 1000);
             continue;
         }
@@ -330,6 +351,7 @@ fn run_presenter(
 
 /// Présente une image : mémorise pour la capture d'écran puis livre à l'UI.
 fn present(shared: &Arc<SharedState>, frame: &Arc<VideoFrameData>, sink: &FrameSink) {
+    shared.frames_presented.fetch_add(1, Ordering::Relaxed);
     *shared.last_frame.lock().unwrap() = Some(Arc::clone(frame));
     // Sans audio, la vidéo ancre elle-même l'horloge au premier affichage.
     if !shared.clock.started() {

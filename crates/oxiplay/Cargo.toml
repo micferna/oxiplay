@@ -9,6 +9,12 @@ repository.workspace = true
 rust-version.workspace = true
 build = "build.rs"
 
+[features]
+# Rendu vidéo GPU « zéro copie » + tone-mapping HDR (expérimental ; câblage
+# runtime en cours, voir docs/RENDER_WGPU.md). DÉSACTIVÉ par défaut : le chemin
+# CPU (swscale RGBA, déjà colorimétriquement correct) reste le défaut et le repli.
+gpu = ["slint/unstable-wgpu-28", "slint/renderer-femtovg-wgpu"]
+
 [dependencies]
 # Décodage : bindings sûrs au-dessus de FFmpeg (demux, decode, scale,
 # resample). Fork « the-third » de ffmpeg-next, activement maintenu et
@@ -33,9 +39,22 @@ dirs = "6"
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
+# Contrôles média du bureau (MPRIS/SMTC/Now Playing), backend zbus pur Rust
+souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+# Client HTTP minimal (TLS rustls) pour la vérification de mise à jour
+ureq = "2"
 
 [build-dependencies]
 slint-build = "1.8"
+
+[dev-dependencies]
+# Benchmarks des chemins chauds (parsing/recherche de sous-titres,
+# compositing image). Voir benches/hot_paths.rs.
+criterion = "0.5"
+
+[[bench]]
+name = "hot_paths"
+harness = false
 
 [package.metadata.deb]
 maintainer = "micferna <ocb.ketu@gmail.com>"

@@ -13,8 +13,13 @@ Objectif : un concurrent open source de VLC, propre, modulaire et performant.
 
 ### Lecture
 - **Vidéo** : MP4, MKV, AVI, MOV, WebM, MPEG, FLV, TS, WMV… (tout ce que
-  libavformat/libavcodec sait ouvrir)
+  libavformat/libavcodec sait ouvrir), jusqu'en **4K/8K** (HEVC, AV1, VP9…)
+  avec **décodage matériel** (VAAPI/NVDEC/QSV/VideoToolbox/D3D11VA) et
+  colorimétrie correcte BT.709/BT.2020
 - **Audio** : MP3, FLAC, WAV, OGG, AAC, M4A, Opus, WMA…
+- **Blu-ray** : dossiers **BDMV**, images **`.iso`** et disques (libbluray,
+  bouton 📀) — disques non chiffrés uniquement (l'AACS des disques commerciaux,
+  dont l'UHD 4K, n'est pas pris en charge)
 - **Streaming** : HTTP/HTTPS progressif, HLS (`.m3u8`), RTSP (transport TCP),
   IPTV (UDP/RTP multicast), avec reconnexion automatique et timeouts
 

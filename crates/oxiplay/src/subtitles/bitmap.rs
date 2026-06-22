@@ -62,22 +62,23 @@ pub fn composite(frame: &mut [u8], fw: u32, fh: u32, sub: &BitmapSubtitle) {
     if fw == 0 || fh == 0 {
         return;
     }
-    for row in 0..sub.height {
-        let fy = sub.y + row;
-        if fy >= fh {
-            break;
-        }
-        for col in 0..sub.width {
-            let fx = sub.x + col;
-            if fx >= fw {
-                continue;
-            }
-            let si = ((row * sub.width + col) * 4) as usize;
+    // Clippe une seule fois la zone visible, au lieu d'un test de bornes par
+    // pixel : on ne parcourt que les colonnes/lignes réellement dans le cadre.
+    let row_end = sub.height.min(fh.saturating_sub(sub.y)) as usize;
+    let col_end = sub.width.min(fw.saturating_sub(sub.x)) as usize;
+    let sub_w = sub.width as usize;
+    let fw = fw as usize;
+    for row in 0..row_end {
+        let fy = sub.y as usize + row;
+        let src_row = (row * sub_w) * 4;
+        let dst_row = (fy * fw + sub.x as usize) * 4;
+        for col in 0..col_end {
+            let si = src_row + col * 4;
             let alpha = sub.rgba[si + 3] as u32;
             if alpha == 0 {
                 continue;
             }
-            let di = ((fy * fw + fx) * 4) as usize;
+            let di = dst_row + col * 4;
             // out = src*a + dst*(1-a), en entiers (a sur 0..=255).
             let inv = 255 - alpha;
             for c in 0..3 {
