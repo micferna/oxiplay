@@ -218,7 +218,16 @@ fn render_audio<T>(
     T: cpal::SizedSample + cpal::FromSample<f32>,
 {
     let silence = T::from_sample(0.0f32);
-    let shared = session.lock().unwrap().clone();
+    // Thread temps réel : on ne BLOQUE jamais sur un mutex (inversion de
+    // priorité). Si un verrou est tenu ailleurs (attach/détache, décodeur qui
+    // pousse), on sort en silence sur ce tampon — bien plus court qu'un xrun.
+    let shared = match session.try_lock() {
+        Ok(s) => s.clone(),
+        Err(_) => {
+            data.fill(silence);
+            return;
+        }
+    };
     let Some(shared) = shared else {
         data.fill(silence);
         return;
@@ -233,7 +242,13 @@ fn render_audio<T>(
     // Décalage de synchronisation A/V : décale le PTS rapporté à l'horloge
     // maîtresse, donc la vidéo par rapport à l'audio réellement entendu.
     let audio_delay = shared.audio_delay_us.load(Ordering::Relaxed);
-    let mut inner = queue.inner.lock().unwrap();
+    let mut inner = match queue.inner.try_lock() {
+        Ok(g) => g,
+        Err(_) => {
+            data.fill(silence);
+            return;
+        }
+    };
     let mut consumed_frames = 0usize;
 
     for frame in data.chunks_mut(channels) {

@@ -23,6 +23,9 @@ struct ScalerCache {
     format: ffmpeg::format::Pixel,
     width: u32,
     height: u32,
+    /// Trame RGBA de sortie réutilisée d'une image à l'autre : `scaling::run`
+    /// n'alloue que si elle est vide, on évite donc une allocation par image.
+    rgba: ffmpeg::frame::Video,
 }
 
 /// Point d'entrée du thread de décodage vidéo.
@@ -475,21 +478,28 @@ fn convert_frame(
             format: decoded.format(),
             width,
             height,
+            rgba: ffmpeg::frame::Video::empty(),
         });
     }
     let cache = cache.as_mut().expect("scaler initialisé ci-dessus");
 
-    let mut rgba = ffmpeg::frame::Video::empty();
-    cache.scaler.run(decoded, &mut rgba)?;
+    // Réutilise le tampon de sortie (alloué une seule fois) — disjoint de
+    // `scaler`, donc les deux emprunts mutables coexistent.
+    cache.scaler.run(decoded, &mut cache.rgba)?;
 
-    // Copie compacte ligne à ligne (le stride FFmpeg est souvent aligné).
-    let stride = rgba.stride(0);
+    let stride = cache.rgba.stride(0);
     let row_len = width as usize * 4;
-    let data = rgba.data(0);
+    let data = cache.rgba.data(0);
     let mut pixels = Vec::with_capacity(row_len * height as usize);
-    for y in 0..height as usize {
-        let start = y * stride;
-        pixels.extend_from_slice(&data[start..start + row_len]);
+    if stride == row_len {
+        // Tampon déjà compact : copie en un seul bloc.
+        pixels.extend_from_slice(&data[..row_len * height as usize]);
+    } else {
+        // Stride aligné par FFmpeg : copie ligne à ligne.
+        for y in 0..height as usize {
+            let start = y * stride;
+            pixels.extend_from_slice(&data[start..start + row_len]);
+        }
     }
 
     // PTS : best effort, avec repli sur une cadence estimée.

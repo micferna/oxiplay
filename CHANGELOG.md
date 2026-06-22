@@ -85,6 +85,12 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   lecture/pause, suivant, retour), basculable par bouton ou la touche `P`.
 
 ### Modifié
+- **Chemin vidéo** : la trame RGBA de sortie de swscale est réutilisée d'une
+  image à l'autre (une allocation par image en moins), et la copie compacte se
+  fait en un seul bloc quand le stride le permet.
+- **Callback audio temps réel sans blocage** : les verrous y sont désormais pris
+  en `try_lock` — en cas de contention (décodeur qui pousse, attache/détache),
+  on émet un tampon de silence plutôt que de risquer une inversion de priorité.
 - **Compositing des sous-titres image** optimisé : clipping de la zone visible
   en une fois (au lieu d'un test de bornes par pixel) — ~7 % plus rapide dans
   le pire cas, davantage en pratique (sortie identique, vérifiée par les tests).
