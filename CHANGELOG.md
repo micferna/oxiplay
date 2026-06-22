@@ -13,6 +13,9 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   couleurs de tout le contenu HD et HDR.
 
 ### Ajouté
+- **Sous-titres en ligne** (OpenSubtitles, bouton 🔍) : recherche et
+  téléchargement automatique pour le média courant, dans la langue préférée.
+  Nécessite une clé d'API gratuite (paramètre `opensubtitles_api_key`).
 - **Lecture de vidéos web** (YouTube, Vimeo, Twitch…) via **yt-dlp** : une URL
   de page est automatiquement résolue en flux direct si yt-dlp est installé ;
   repli transparent sur l'URL d'origine sinon (aucune régression).

@@ -224,6 +224,7 @@ export component MainWindow inherits Window {
     callback subtitle-track-selected(int);
     callback audio-device-selected(int);
     callback load-subtitle-file();
+    callback search-online-subs();
     callback sub-delay-adjust(float); // ± secondes
     callback subtitle-scale-adjust(float);
     callback set-subtitle-color(int); // 0xRRGGBB, ou < 0 = style d'origine
@@ -300,6 +301,7 @@ export component MainWindow inherits Window {
                     }
                     ToolButton { text: "📡"; dark: root.dark; clicked => { root.open-url(url-input.text); url-input.text = ""; } }
                     ToolButton { text: "💬"; dark: root.dark; clicked => { root.load-subtitle-file(); } }
+                    ToolButton { text: "🔍"; tip: "Sous-titres en ligne (OpenSubtitles)"; dark: root.dark; clicked => { root.search-online-subs(); } }
                     ToolButton { text: "Aa"; tip: "Style sous-titres"; dark: root.dark; active: root.subs-visible; clicked => { root.subs-visible = !root.subs-visible; } }
                     ToolButton { text: "📷"; dark: root.dark; clicked => { root.take-screenshot(); } }
                     ToolButton {

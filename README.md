@@ -32,6 +32,7 @@ Objectif : un concurrent open source de VLC, propre, modulaire et performant.
 - Formats **SRT, ASS, SSA, WebVTT** (fichiers externes, chargement manuel)
 - Pistes **embarquées** (SubRip/ASS dans MKV/MP4), sélection à la volée
 - Sous-titres **image PGS/DVD** incrustés sur la vidéo
+- **Recherche en ligne** (OpenSubtitles, bouton 🔍) — clé d'API gratuite requise
 - **Décalage réglable** et **style utilisateur** (taille, couleur)
 
 ### Contrôles

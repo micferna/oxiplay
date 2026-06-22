@@ -67,6 +67,10 @@ pub struct Settings {
     pub media_states: HashMap<String, MediaState>,
     /// Vérifier les mises à jour au lancement (API GitHub).
     pub check_updates: bool,
+    /// Clé d'API OpenSubtitles (vide = recherche en ligne désactivée).
+    pub opensubtitles_api_key: String,
+    /// Langue préférée des sous-titres en ligne (code ISO, ex. « fr »).
+    pub subtitle_language: String,
 }
 
 impl Default for Settings {
@@ -83,6 +87,8 @@ impl Default for Settings {
             subtitle_color: None,
             media_states: HashMap::new(),
             check_updates: true,
+            opensubtitles_api_key: String::new(),
+            subtitle_language: "fr".to_string(),
         }
     }
 }
