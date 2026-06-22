@@ -82,6 +82,9 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   lecture/pause, suivant, retour), basculable par bouton ou la touche `P`.
 
 ### Modifié
+- **Compositing des sous-titres image** optimisé : clipping de la zone visible
+  en une fois (au lieu d'un test de bornes par pixel) — ~7 % plus rapide dans
+  le pire cas, davantage en pratique (sortie identique, vérifiée par les tests).
 - Pipeline audio refondu autour d'un graphe de filtres (égaliseur → atempo →
   conversion), reconstruit à la volée quand la vitesse ou les gains changent.
 
