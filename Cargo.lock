@@ -4279,6 +4279,7 @@ dependencies = [
  "env_logger",
  "ffmpeg-the-third",
  "log",
+ "naga",
  "png 0.18.1",
  "rfd",
  "serde",

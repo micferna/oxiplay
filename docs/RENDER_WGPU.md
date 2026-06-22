@@ -1,8 +1,12 @@
 # Rendu vidéo wgpu « zéro copie » + HDR
 
-État : **conception + shader prêts** ; câblage runtime à faire **sur une machine
-avec écran/GPU** (le rendu ne se valide pas en headless). Ce document est le
-guide d'implémentation, calé sur l'API réelle de Slint 1.16.
+État : **pipeline + shader compilés et vérifiés** (le module `render/`
+compile sous `--features gpu` — vérifié en CI ; le shader WGSL est validé par
+naga dans un test). Reste le **câblage runtime** (sortie YUV du décodeur,
+notifier Slint pour le device/queue, routage UI) et la **justesse visuelle**, à
+finaliser **sur une machine avec écran/GPU** (le rendu ne se valide pas en
+headless). Ce document est le guide d'implémentation, calé sur l'API réelle de
+Slint 1.16.
 
 ## Pourquoi
 

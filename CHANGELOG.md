@@ -13,6 +13,11 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   couleurs de tout le contenu HD et HDR.
 
 ### Ajouté
+- **Rendu vidéo GPU (expérimental, feature `gpu`)** : pipeline wgpu YUV→RGB +
+  tone-mapping HDR (PQ/HLG) prêt — module `render/` compilé et vérifié en CI,
+  shader WGSL validé par naga. Le câblage runtime (sortie YUV du décodeur,
+  partage du device Slint) et la justesse visuelle restent à finaliser sur
+  écran. Voir `docs/RENDER_WGPU.md`.
 - **Vérification de mise à jour au lancement** : interroge l'API GitHub Releases
   en arrière-plan et signale (bannière cliquable dans la barre d'outils) qu'une
   version plus récente est disponible. Désactivable (`check_updates`).
