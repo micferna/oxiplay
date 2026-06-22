@@ -80,6 +80,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p oxiplay
 
+  gpu:
+    name: Build wgpu (feature gpu, Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Dépendances système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config clang libavcodec-dev libavformat-dev \
+            libavutil-dev libswscale-dev libswresample-dev libavfilter-dev \
+            libavdevice-dev libasound2-dev libfontconfig-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Vérifie que la voie de rendu GPU (pile wgpu de Slint + module render/)
+      # continue de compiler. Le rendu lui-même se valide sur écran.
+      - run: cargo build --features gpu -p oxiplay
+
   audit:
     name: Audit sécurité (CVE)
     runs-on: ubuntu-latest

@@ -16,6 +16,9 @@ pub mod inhibit;
 pub mod media_controls;
 pub mod player;
 pub mod playlist;
+/// Rendu vidéo GPU zéro-copie + HDR (expérimental, feature `gpu`).
+#[cfg(feature = "gpu")]
+pub mod render;
 pub mod settings;
 pub mod streaming;
 pub mod subtitles;
