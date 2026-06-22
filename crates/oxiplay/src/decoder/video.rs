@@ -182,7 +182,7 @@ fn drain_frames(
             shared.contrast_milli.load(Ordering::Relaxed),
             shared.saturation_milli.load(Ordering::Relaxed),
             deint_enabled,
-            frame_ref.is_interlaced(),
+            frame_is_interlaced(frame_ref),
         );
         let keep = match spec {
             Some(spec) => match filter_and_emit(
@@ -230,6 +230,14 @@ fn drain_frames(
             return;
         }
     }
+}
+
+/// Trame entrelacée ? On lit le **flag** `AV_FRAME_FLAG_INTERLACED` plutôt que
+/// le champ `interlaced_frame` (déprécié en FFmpeg 7, **supprimé** en FFmpeg 8 ;
+/// le flag, lui, est présent et renseigné en 6/7/8).
+fn frame_is_interlaced(frame: &ffmpeg::frame::Video) -> bool {
+    // SAFETY : `as_ptr` renvoie un AVFrame valide ; on lit un champ scalaire.
+    unsafe { (*frame.as_ptr()).flags & ffi::AV_FRAME_FLAG_INTERLACED != 0 }
 }
 
 /// Construit la spec de filtres vidéo (désentrelacement + rotation + réglages

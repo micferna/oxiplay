@@ -812,7 +812,7 @@ impl App {
         }
     }
 
-    /// Applique un préréglage d'égaliseur (voir [`EQ_PRESETS`]). L'index 0
+    /// Applique un préréglage d'égaliseur (voir `EQ_PRESETS`). L'index 0
     /// « Manuel » conserve les réglages courants.
     pub fn apply_eq_preset(&mut self, index: i32) {
         if index <= 0 {
