@@ -531,6 +531,26 @@ impl App {
         }
     }
 
+    /// Bascule la langue de l'interface entre français et anglais, en direct
+    /// (les libellés `@tr` se ré-évaluent immédiatement). Le choix est persisté.
+    pub fn cycle_language(&mut self) {
+        let next = if self.settings.resolve_language() == "en" {
+            "fr"
+        } else {
+            "en"
+        };
+        self.settings.language = next.to_string();
+        self.settings.save();
+        // "" = langue source (français) ; "en" = traduction bundlée.
+        let code = if next == "en" { "en" } else { "" };
+        if let Err(e) = slint::select_bundled_translation(code) {
+            log::warn!("changement de langue impossible : {e}");
+        }
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_ui_language(next.into());
+        }
+    }
+
     /// Cycle le mode de répétition (Off → Tous → Un) et le reflète dans l'UI.
     pub fn cycle_repeat(&mut self) {
         self.repeat_mode = self.repeat_mode.cycled();

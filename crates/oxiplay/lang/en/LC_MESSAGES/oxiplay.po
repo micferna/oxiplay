@@ -75,3 +75,61 @@ msgstr "Bass+"
 
 msgid "Voix"
 msgstr "Vocal"
+
+# --- Info-bulles (tooltips) ---
+msgid "À plat"
+msgstr "Flat"
+
+msgid "Audio plus tard"
+msgstr "Audio later"
+
+msgid "Audio plus tôt"
+msgstr "Audio earlier"
+
+msgid "Infos média"
+msgstr "Media info"
+
+msgid "Mini-lecteur"
+msgstr "Mini player"
+
+msgid "Mise à jour disponible — ouvrir la page"
+msgstr "Update available — open the page"
+
+msgid "Plein écran"
+msgstr "Fullscreen"
+
+msgid "Précédent"
+msgstr "Previous"
+
+msgid "Quitter le mini-lecteur"
+msgstr "Exit mini player"
+
+msgid "Réglages image"
+msgstr "Image settings"
+
+msgid "Réinitialiser"
+msgstr "Reset"
+
+msgid "Répétition (R)"
+msgstr "Repeat (R)"
+
+msgid "Rotation 90°"
+msgstr "Rotate 90°"
+
+msgid "Sous-titres en ligne (OpenSubtitles)"
+msgstr "Online subtitles (OpenSubtitles)"
+
+msgid "ST plus tard"
+msgstr "Subtitles later"
+
+msgid "ST plus tôt"
+msgstr "Subtitles earlier"
+
+msgid "Style d'origine"
+msgstr "Original style"
+
+msgid "Style sous-titres"
+msgstr "Subtitle style"
+
+msgid "Suivant"
+msgstr "Next"
