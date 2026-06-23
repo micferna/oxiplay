@@ -251,75 +251,29 @@ component MenuRow inherits Rectangle {
 // Bouton « ⋮ » regroupant les options secondaires (rotation, image,
 // mini-lecteur, thème, langue) dans un menu déroulant, pour désencombrer la
 // barre d'outils. Le menu se ferme à tout clic (`close-on-click`).
+// État partagé du menu déroulant « ⋮ » : ouvert via le bouton, rendu par un
+// overlay au niveau de la fenêtre (donc masqué en plein écran et fermable au
+// clic extérieur — un PopupWindow resterait orphelin quand la barre se masque).
+global MenuState {
+    in-out property <bool> open;
+    in-out property <length> anchor-x; // bord droit du bouton (coord. fenêtre)
+    in-out property <length> anchor-y; // bas du bouton (coord. fenêtre)
+}
+
 component MenuButton inherits Rectangle {
     in property <bool> dark: true;
-    in property <bool> image-active: false;
-    in property <string> language: "fr";
-    callback rotate();
-    callback toggle-image();
-    callback toggle-mini();
-    callback toggle-theme();
-    callback cycle-language();
-
     width: 36px;
     height: 32px;
 
-    ToolButton {
+    btn := ToolButton {
         text: "⋮";
         tip: @tr("Plus d'options");
         dark: root.dark;
+        active: MenuState.open;
         clicked => {
-            menu.show();
-        }
-    }
-
-    menu := PopupWindow {
-        x: root.width - 214px; // aligne le bord droit du menu sur le bouton
-        y: root.height + 4px;
-        width: 214px;
-        height: col.preferred-height;
-        close-policy: close-on-click;
-
-        Rectangle {
-            background: root.dark ? #1b1f26 : #ffffff;
-            border-color: root.dark ? #3a414c : #d0d4da;
-            border-width: 1px;
-            border-radius: 8px;
-            col := VerticalLayout {
-                padding: 6px;
-                spacing: 2px;
-                MenuRow {
-                    dark: root.dark;
-                    icon: "⟳";
-                    label: @tr("Rotation 90°");
-                    activated => { root.rotate(); }
-                }
-                MenuRow {
-                    dark: root.dark;
-                    icon: "🎨";
-                    label: @tr("Réglages image");
-                    active: root.image-active;
-                    activated => { root.toggle-image(); }
-                }
-                MenuRow {
-                    dark: root.dark;
-                    icon: "🗗";
-                    label: @tr("Mini-lecteur");
-                    activated => { root.toggle-mini(); }
-                }
-                MenuRow {
-                    dark: root.dark;
-                    icon: root.dark ? "☀" : "🌙";
-                    label: @tr("Thème clair / sombre");
-                    activated => { root.toggle-theme(); }
-                }
-                MenuRow {
-                    dark: root.dark;
-                    icon: "🌐";
-                    label: root.language == "en" ? "Language: English" : "Langue : Français";
-                    activated => { root.cycle-language(); }
-                }
-            }
+            MenuState.anchor-x = btn.absolute-position.x + btn.width;
+            MenuState.anchor-y = btn.absolute-position.y + btn.height;
+            MenuState.open = !MenuState.open;
         }
     }
 }
@@ -354,6 +308,8 @@ export component MainWindow inherits Window {
     in property <string> status-text: "";
     in property <string> media-title: "";
     in property <[PlaylistEntry]> playlist-entries: [];
+    in property <[string]> playlist-groups: []; // catégories pour le filtre IPTV
+    in-out property <string> playlist-search;
     in property <[string]> audio-tracks: [];
     in property <[string]> subtitle-tracks: [];
     in property <[string]> audio-devices: [];
@@ -406,6 +362,8 @@ export component MainWindow inherits Window {
     callback playlist-shift(int, int);
     callback playlist-save();
     callback playlist-load();
+    callback playlist-search-changed(string);
+    callback playlist-group-selected(int);
     callback audio-track-selected(int);
     callback subtitle-track-selected(int);
     callback audio-device-selected(int);
@@ -432,6 +390,12 @@ export component MainWindow inherits Window {
 
     // Chrome (barres, playlist) masqué en plein écran ou en mini-lecteur.
     property <bool> chrome-hidden: root.fullscreen || root.mini;
+    // Ferme le menu déroulant quand la barre se masque (plein écran / mini).
+    changed chrome-hidden => {
+        if (root.chrome-hidden) {
+            MenuState.open = false;
+        }
+    }
 
     // Réactivité : sous ce seuil, les contrôles secondaires passent sur une 2e
     // rangée (rien n'est masqué). Recalculé impérativement (pas une liaison)
@@ -517,16 +481,7 @@ export component MainWindow inherits Window {
                         active: root.info-visible;
                         clicked => { root.info-visible = !root.info-visible; }
                     }
-                    MenuButton {
-                        dark: root.dark;
-                        image-active: root.image-visible;
-                        language: root.ui-language;
-                        rotate => { root.cycle-rotation(); }
-                        toggle-image => { root.image-visible = !root.image-visible; }
-                        toggle-mini => { root.toggle-mini(); }
-                        toggle-theme => { root.toggle-theme(); }
-                        cycle-language => { root.cycle-language(); }
-                    }
+                    MenuButton { dark: root.dark; }
                     ToolButton {
                         text: "☰";
                         dark: root.dark;
@@ -823,6 +778,70 @@ export component MainWindow inherits Window {
                         }
                     }
 
+                    // Plein écran : barre de contrôles flottante, masquée puis
+                    // révélée quand la souris descend en bas (immersif, façon
+                    // VLC/mpv). Le `has-hover` de la zone basse reste vrai au
+                    // survol des boutons enfants (même principe que le mini-bar).
+                    if root.fullscreen && !root.mini: Rectangle {
+                        y: parent.height - self.height;
+                        width: 100%;
+                        height: 92px;
+                        fs-bar := TouchArea {
+                            bar := Rectangle {
+                                x: (parent.width - self.width) / 2;
+                                y: parent.height - self.height - 14px;
+                                width: min(parent.width - 32px, 900px);
+                                height: 62px;
+                                opacity: fs-bar.has-hover ? 1.0 : 0.0;
+                                animate opacity { duration: 150ms; }
+                                background: #0a0c10ee;
+                                border-radius: 10px;
+                                border-width: 1px;
+                                border-color: #ffffff26;
+
+                                VerticalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    padding-top: 7px;
+                                    padding-bottom: 7px;
+                                    spacing: 4px;
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Text { text: root.position-text; color: #cfd3da; font-size: 11px; vertical-alignment: center; width: 48px; }
+                                        SeekBar {
+                                            horizontal-stretch: 1;
+                                            progress: root.progress;
+                                            dark: true;
+                                            enabled: root.seekable && root.media-loaded;
+                                            seek(f) => { root.seek-to(f); }
+                                        }
+                                        Text { text: root.duration-text; color: #cfd3da; font-size: 11px; vertical-alignment: center; width: 48px; horizontal-alignment: right; }
+                                    }
+                                    HorizontalLayout {
+                                        alignment: center;
+                                        spacing: 6px;
+                                        ToolButton { text: "⏮"; tip: @tr("Précédent"); dark: true; clicked => { root.previous-item(); } }
+                                        ToolButton { text: "⏪"; tip: @tr("-10 s"); dark: true; clicked => { root.seek-relative(-10); } }
+                                        ToolButton { text: root.playing ? "⏸" : "▶"; dark: true; width: 44px; clicked => { root.play-pause(); } }
+                                        ToolButton { text: "⏩"; tip: @tr("+10 s"); dark: true; clicked => { root.seek-relative(10); } }
+                                        ToolButton { text: "⏭"; tip: @tr("Suivant"); dark: true; clicked => { root.next-item(); } }
+                                        Rectangle { width: 8px; }
+                                        ToolButton { text: root.muted ? "🔇" : "🔊"; dark: true; clicked => { root.toggle-mute(); } }
+                                        Slider {
+                                            width: 104px;
+                                            minimum: 0.0;
+                                            maximum: 1.25;
+                                            value <=> root.volume;
+                                            changed(v) => { root.volume-changed(v); }
+                                        }
+                                        ToolButton { text: "⛶"; tip: @tr("Quitter le plein écran"); dark: true; clicked => { root.toggle-fullscreen(); } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Contrôles flottants du mini-lecteur (apparaissent au survol).
                     if root.mini: mini-bar := Rectangle {
                         x: (parent.width - self.width) / 2;
@@ -861,6 +880,19 @@ export component MainWindow inherits Window {
                             color: root.fg;
                             font-size: 14px;
                             font-weight: 700;
+                        }
+
+                        // Recherche par nom (utile pour les annuaires IPTV).
+                        LineEdit {
+                            placeholder-text: @tr("Rechercher une chaîne…");
+                            text <=> root.playlist-search;
+                            edited => { root.playlist-search-changed(self.text); }
+                        }
+                        // Filtre par catégorie / pays, dès qu'il y en a plusieurs.
+                        if root.playlist-groups.length > 1: ComboBox {
+                            model: root.playlist-groups;
+                            current-index: 0;
+                            selected => { root.playlist-group-selected(self.current-index); }
                         }
 
                         ListView {
@@ -904,7 +936,7 @@ export component MainWindow inherits Window {
             }
 
             // ---- Barre de progression ------------------------------------
-            if !root.mini: Rectangle {
+            if !root.chrome-hidden: Rectangle {
                 height: 28px;
                 background: root.panel;
                 HorizontalLayout {
@@ -938,7 +970,7 @@ export component MainWindow inherits Window {
             // Transport + volume + plein écran restent toujours sur la 1re rangée ;
             // les contrôles secondaires sont en ligne (large) ou sur une 2e rangée
             // (étroit, `two-row`). Rien n'est jamais masqué.
-            if !root.mini: Rectangle {
+            if !root.chrome-hidden: Rectangle {
                 height: root.two-row ? 92px : 52px;
                 background: root.panel;
 
@@ -1039,6 +1071,63 @@ export component MainWindow inherits Window {
                         }
                         Rectangle { horizontal-stretch: 1; }
                     }
+                }
+            }
+        }
+    }
+
+    // ---- Menu déroulant « ⋮ » (overlay : se ferme au clic extérieur et se
+    // masque en plein écran, contrairement à un PopupWindow orphelin) --------
+    if MenuState.open && !root.chrome-hidden: TouchArea {
+        width: 100%;
+        height: 100%;
+        // Clic hors du menu → ferme (le clic sur une ligne est consommé par sa
+        // propre zone tactile et ne remonte pas jusqu'ici).
+        clicked => {
+            MenuState.open = false;
+        }
+        Rectangle {
+            x: clamp(MenuState.anchor-x - self.width, 6px, root.width - self.width - 6px);
+            y: min(MenuState.anchor-y + 4px, root.height - self.height - 6px);
+            width: 214px;
+            height: menu-col.preferred-height;
+            background: root.dark ? #1b1f26 : #ffffff;
+            border-color: root.dark ? #3a414c : #d0d4da;
+            border-width: 1px;
+            border-radius: 8px;
+            menu-col := VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                MenuRow {
+                    dark: root.dark;
+                    icon: "⟳";
+                    label: @tr("Rotation 90°");
+                    activated => { root.cycle-rotation(); MenuState.open = false; }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: "🎨";
+                    label: @tr("Réglages image");
+                    active: root.image-visible;
+                    activated => { root.image-visible = !root.image-visible; MenuState.open = false; }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: "🗗";
+                    label: @tr("Mini-lecteur");
+                    activated => { root.toggle-mini(); MenuState.open = false; }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: root.dark ? "☀" : "🌙";
+                    label: @tr("Thème clair / sombre");
+                    activated => { root.toggle-theme(); MenuState.open = false; }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: "🌐";
+                    label: root.ui-language == "en" ? "Language: English" : "Langue : Français";
+                    activated => { root.cycle-language(); MenuState.open = false; }
                 }
             }
         }

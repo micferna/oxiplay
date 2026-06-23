@@ -39,6 +39,16 @@ pub struct App {
     audio: Option<AudioOutput>,
     engine: Option<PlayerEngine>,
     playlist: Playlist,
+    /// Filtre de recherche de la playlist (sous-chaîne du titre, insensible à
+    /// la casse). Vide = pas de filtre.
+    playlist_search: String,
+    /// Catégorie/pays sélectionnée pour le filtre (vide = toutes).
+    playlist_group: String,
+    /// Catégories distinctes présentes (pour mapper l'index du ComboBox).
+    playlist_groups: Vec<String>,
+    /// Indices d'items affichés (ligne visible → index réel), pour mapper les
+    /// clics quand un filtre masque des entrées.
+    playlist_visible: Vec<usize>,
     settings: Settings,
     current_source: Option<String>,
     /// Limiteur : une seule image en vol vers le thread UI à la fois.
@@ -79,6 +89,19 @@ pub struct App {
     /// Canal de livraison des sous-titres téléchargés en ligne (thread → UI).
     subtitle_dl_tx: Sender<Option<SubtitleTrack>>,
     subtitle_dl_rx: Receiver<Option<SubtitleTrack>>,
+    /// Canal de livraison des playlists M3U distantes (thread réseau → UI).
+    m3u_tx: Sender<M3uFetch>,
+    m3u_rx: Receiver<M3uFetch>,
+}
+
+/// Résultat de la récupération d'une URL `.m3u`/`.m3u8` en arrière-plan.
+enum M3uFetch {
+    /// Vrai flux HLS : à lire directement (l'URL d'origine).
+    Stream(String),
+    /// Annuaire de chaînes : à charger comme entrées de playlist.
+    Channels(Vec<PlaylistItem>),
+    /// Échec réseau ou contenu illisible.
+    Failed(String),
 }
 
 /// Préréglages d'égaliseur (gains dB, ordre [`crate::decoder::EQ_FREQUENCIES`] :
@@ -106,11 +129,16 @@ impl App {
             }
         };
         let (subtitle_dl_tx, subtitle_dl_rx) = unbounded();
+        let (m3u_tx, m3u_rx) = unbounded();
         let app = Self {
             ui,
             audio,
             engine: None,
             playlist: Playlist::default(),
+            playlist_search: String::new(),
+            playlist_group: String::new(),
+            playlist_groups: Vec::new(),
+            playlist_visible: Vec::new(),
             current_source: None,
             ui_busy: Arc::new(AtomicBool::new(false)),
             audio_track_streams: Vec::new(),
@@ -138,6 +166,8 @@ impl App {
             update_url: None,
             subtitle_dl_tx,
             subtitle_dl_rx,
+            m3u_tx,
+            m3u_rx,
             settings,
         };
         if let Some(ui) = app.ui.upgrade() {
@@ -576,6 +606,7 @@ impl App {
         for source in sources {
             self.playlist.add(PlaylistItem::new(source));
         }
+        self.refresh_playlist_groups();
         self.refresh_playlist_model();
         if self.engine.is_none() {
             self.playlist.select(first_added);
@@ -598,9 +629,40 @@ impl App {
             self.set_status("URL non reconnue (http, https, rtsp, udp, bluray…)");
             return;
         }
+        // Un `.m3u`/`.m3u8` peut être soit un flux HLS unique, soit un annuaire
+        // de chaînes IPTV (des centaines/milliers d'entrées) — l'extension ne
+        // tranche pas. On récupère le contenu en arrière-plan pour décider.
+        if url.to_ascii_lowercase().contains(".m3u") {
+            self.fetch_m3u(url.to_string());
+            return;
+        }
         let index = self.playlist.add(PlaylistItem::new(url));
         self.playlist.select(index);
         self.open_current();
+    }
+
+    /// Récupère une playlist `.m3u`/`.m3u8` distante sur un thread réseau, puis
+    /// décide (dans `tick`) s'il s'agit d'un flux à lire ou d'un annuaire de
+    /// chaînes à charger. Ne bloque jamais l'interface.
+    fn fetch_m3u(&mut self, url: String) {
+        self.set_status("Récupération de la playlist…");
+        let tx = self.m3u_tx.clone();
+        std::thread::spawn(move || {
+            let result = match crate::streaming::fetch_text(&url) {
+                Ok(content) if crate::streaming::looks_like_hls(&content) => M3uFetch::Stream(url),
+                Ok(content) => {
+                    let items = crate::playlist::parse_m3u_content(&content, None);
+                    if items.is_empty() {
+                        // Aucune entrée reconnue : on laisse FFmpeg tenter l'URL.
+                        M3uFetch::Stream(url)
+                    } else {
+                        M3uFetch::Channels(items)
+                    }
+                }
+                Err(e) => M3uFetch::Failed(e.to_string()),
+            };
+            let _ = tx.send(result);
+        });
     }
 
     /// Ouvre une entrée de l'historique de lecture (fichiers récents).
@@ -614,22 +676,32 @@ impl App {
     }
 
     pub fn playlist_activate(&mut self, index: usize) {
-        if self.playlist.select(index).is_some() {
+        let Some(&real) = self.playlist_visible.get(index) else {
+            return;
+        };
+        if self.playlist.select(real).is_some() {
             self.open_current();
         }
     }
 
     pub fn playlist_remove(&mut self, index: usize) {
-        let was_current = self.playlist.current_index() == Some(index);
-        self.playlist.remove(index);
+        let Some(&real) = self.playlist_visible.get(index) else {
+            return;
+        };
+        let was_current = self.playlist.current_index() == Some(real);
+        self.playlist.remove(real);
         if was_current {
             self.stop_current(true);
         }
+        self.refresh_playlist_groups();
         self.refresh_playlist_model();
     }
 
     pub fn playlist_shift(&mut self, index: usize, delta: i32) {
-        self.playlist.shift(index, delta);
+        let Some(&real) = self.playlist_visible.get(index) else {
+            return;
+        };
+        self.playlist.shift(real, delta);
         self.refresh_playlist_model();
     }
 
@@ -647,26 +719,74 @@ impl App {
             Ok(n) => {
                 self.set_status(&format!("{n} entrées chargées"));
                 self.stop_current(true);
+                self.refresh_playlist_groups();
                 self.refresh_playlist_model();
             }
             Err(e) => self.set_status(&format!("Échec de chargement : {e}")),
         }
     }
 
-    fn refresh_playlist_model(&self) {
+    /// Reconstruit la liste affichée en appliquant le filtre courant (recherche
+    /// + catégorie) et mémorise la correspondance ligne visible → index réel.
+    fn refresh_playlist_model(&mut self) {
         let Some(ui) = self.ui.upgrade() else { return };
         let current = self.playlist.current_index();
-        let entries: Vec<PlaylistEntry> = self
+        let search = self.playlist_search.to_lowercase();
+        let mut entries = Vec::new();
+        let mut visible = Vec::new();
+        for (i, item) in self.playlist.items().iter().enumerate() {
+            let by_group = self.playlist_group.is_empty() || item.group == self.playlist_group;
+            let by_search = search.is_empty() || item.title.to_lowercase().contains(&search);
+            if by_group && by_search {
+                entries.push(PlaylistEntry {
+                    title: item.title.clone().into(),
+                    is_current: Some(i) == current,
+                });
+                visible.push(i);
+            }
+        }
+        self.playlist_visible = visible;
+        ui.set_playlist_entries(ModelRc::from(Rc::new(VecModel::from(entries))));
+    }
+
+    /// Recalcule les catégories distinctes (pour le ComboBox de filtre). À
+    /// appeler quand le contenu de la playlist change, pas à chaque frappe (la
+    /// reconstruction du modèle réinitialiserait la sélection du ComboBox).
+    fn refresh_playlist_groups(&mut self) {
+        let mut groups: Vec<String> = self
             .playlist
             .items()
             .iter()
-            .enumerate()
-            .map(|(i, item)| PlaylistEntry {
-                title: item.title.clone().into(),
-                is_current: Some(i) == current,
-            })
+            .map(|it| it.group.clone())
+            .filter(|g| !g.is_empty())
             .collect();
-        ui.set_playlist_entries(ModelRc::from(Rc::new(VecModel::from(entries))));
+        groups.sort();
+        groups.dedup();
+        self.playlist_groups = groups.clone();
+        if let Some(ui) = self.ui.upgrade() {
+            let mut model = vec!["Toutes les catégories".to_string()];
+            model.extend(groups);
+            ui.set_playlist_groups(string_model(model));
+        }
+    }
+
+    /// Met à jour le filtre de recherche (depuis le champ texte).
+    pub fn set_playlist_search(&mut self, text: &str) {
+        self.playlist_search = text.to_string();
+        self.refresh_playlist_model();
+    }
+
+    /// Sélectionne la catégorie de filtre (index 0 = toutes).
+    pub fn set_playlist_group(&mut self, index: i32) {
+        self.playlist_group = if index <= 0 {
+            String::new()
+        } else {
+            self.playlist_groups
+                .get(index as usize - 1)
+                .cloned()
+                .unwrap_or_default()
+        };
+        self.refresh_playlist_model();
     }
 
     /// Met à jour la liste déroulante des fichiers récents (libellés lisibles)
@@ -883,6 +1003,36 @@ impl App {
                     self.set_status(&format!("{n} sous-titres téléchargés"));
                 }
                 None => self.set_status("Aucun sous-titre trouvé en ligne"),
+            }
+        }
+
+        // Playlist M3U distante récupérée : flux unique → on lit ; annuaire de
+        // chaînes → on charge tout et on lance la première.
+        if let Ok(result) = self.m3u_rx.try_recv() {
+            match result {
+                M3uFetch::Stream(url) => {
+                    let index = self.playlist.add(PlaylistItem::new(url));
+                    self.playlist.select(index);
+                    self.open_current();
+                }
+                M3uFetch::Channels(items) => {
+                    let count = items.len();
+                    let first = self.playlist.len();
+                    for item in items {
+                        self.playlist.add(item);
+                    }
+                    self.refresh_playlist_groups();
+                    self.refresh_playlist_model();
+                    // Montre la liste des chaînes pour que l'utilisateur navigue.
+                    if let Some(ui) = self.ui.upgrade() {
+                        ui.set_playlist_visible(true);
+                    }
+                    self.set_status(&format!("{count} chaînes chargées"));
+                    if self.playlist.select(first).is_some() {
+                        self.open_current();
+                    }
+                }
+                M3uFetch::Failed(e) => self.set_status(&format!("Playlist illisible : {e}")),
             }
         }
 

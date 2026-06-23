@@ -80,6 +80,33 @@ pub fn classify(input: &str) -> StreamKind {
     }
 }
 
+/// Distingue un **vrai flux HLS** (à lire tel quel par FFmpeg) d'un **annuaire
+/// de chaînes** IPTV (à charger comme playlist). Les manifestes HLS portent des
+/// balises `#EXT-X-*` (variantes, segments) qu'un annuaire — simple suite de
+/// `#EXTINF` + URLs complètes — ne contient pas.
+pub fn looks_like_hls(content: &str) -> bool {
+    content.contains("#EXT-X-STREAM-INF")
+        || content.contains("#EXT-X-TARGETDURATION")
+        || content.contains("#EXT-X-MEDIA-SEQUENCE")
+}
+
+/// Récupère le contenu texte d'une URL de playlist (M3U/M3U8). Plafonné à
+/// 32 Mio — certains annuaires IPTV pèsent plusieurs Mo, au-delà de la limite
+/// par défaut de `into_string`, d'où la lecture via un reader plafonné.
+pub fn fetch_text(url: &str) -> anyhow::Result<String> {
+    use std::io::Read;
+    let response = ureq::get(url)
+        .set("User-Agent", concat!("oxiplay/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(15))
+        .call()?;
+    let mut buf = Vec::new();
+    response
+        .into_reader()
+        .take(32 * 1024 * 1024)
+        .read_to_end(&mut buf)?;
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
 /// Options libavformat recommandées pour une source donnée.
 ///
 /// Ces options sont passées à `avformat_open_input` ; elles améliorent
@@ -138,6 +165,20 @@ pub fn demux_options(kind: StreamKind) -> Dictionary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hls_stream_vs_channel_directory() {
+        // Manifeste HLS (variantes) → vrai flux.
+        let hls_master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nlow.m3u8\n";
+        assert!(looks_like_hls(hls_master));
+        // Manifeste HLS (segments) → vrai flux.
+        let hls_media = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6.0,\nseg0.ts\n";
+        assert!(looks_like_hls(hls_media));
+        // Annuaire IPTV (chaînes) → pas un flux, à charger en playlist.
+        let directory = "#EXTM3U\n#EXTINF:-1 tvg-id=\"a\",Chaîne A\nhttps://ex.com/a.m3u8\n\
+                         #EXTINF:-1,Chaîne B\nhttps://ex.com/b.m3u8\n";
+        assert!(!looks_like_hls(directory));
+    }
 
     #[test]
     fn classify_sources() {
