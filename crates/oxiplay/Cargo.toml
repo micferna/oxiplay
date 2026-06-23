@@ -10,10 +10,15 @@ rust-version.workspace = true
 build = "build.rs"
 
 [features]
-# Rendu vidéo GPU « zéro copie » + tone-mapping HDR (expérimental ; câblage
-# runtime en cours, voir docs/RENDER_WGPU.md). DÉSACTIVÉ par défaut : le chemin
-# CPU (swscale RGBA, déjà colorimétriquement correct) reste le défaut et le repli.
-gpu = ["slint/unstable-wgpu-28", "slint/renderer-femtovg-wgpu"]
+# Rendu vidéo GPU « zéro copie » + tone-mapping HDR (SDR 8 bits + HDR 10 bits
+# P010 ; voir docs/RENDER_WGPU.md). On compile AUSSI le renderer femtovg-GL :
+# si l'init wgpu échoue (pas de Vulkan/pilote), l'app retombe dessus au lieu de
+# ne pas démarrer. Le chemin CPU (swscale RGBA) reste le repli de conversion.
+gpu = [
+    "slint/unstable-wgpu-28",
+    "slint/renderer-femtovg-wgpu",
+    "slint/renderer-femtovg",
+]
 
 [dependencies]
 # Décodage : bindings sûrs au-dessus de FFmpeg (demux, decode, scale,

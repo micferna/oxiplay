@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Source d'installeur Windows (.msi) pour OxiPlay, compilée par WiX v3
+  (candle/light) dans le workflow Release. Les fichiers réels (oxiplay.exe +
+  DLLs FFmpeg + README/LICENSE) sont récoltés depuis le dossier `dist\` par
+  `heat` (groupe de composants « AppFiles ») ; ce fichier ne décrit que le
+  produit, l'emplacement d'installation et le raccourci du menu Démarrer.
+
+  Variables passées par candle : -dVersion=<x.y.z> -dDistDir=dist
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="OxiPlay"
+           Language="1036"
+           Version="$(var.Version)"
+           Manufacturer="OxiPlay"
+           UpgradeCode="b6f3e2a1-4c5d-4e8f-9a0b-1c2d3e4f5a6b">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="OxiPlay — lecteur multimédia" />
+
+    <MajorUpgrade DowngradeErrorMessage="Une version plus récente d'OxiPlay est déjà installée." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="Main" Title="OxiPlay" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="OxiPlay" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
+
+    <!-- Raccourci du menu Démarrer vers l'exécutable installé. -->
+    <DirectoryRef Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="c7a4f3b2-5d6e-4f90-ab1c-2d3e4f5a6b7c">
+        <Shortcut Id="OxiplayShortcut"
+                  Name="OxiPlay"
+                  Target="[INSTALLFOLDER]oxiplay.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="CleanupShortcut" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\OxiPlay" Name="installed"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Product>
+</Wix>
