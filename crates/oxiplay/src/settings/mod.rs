@@ -73,6 +73,8 @@ pub struct Settings {
     pub subtitle_language: String,
     /// Langue de l'interface : « auto » (selon le système), « fr » ou « en ».
     pub language: String,
+    /// Chaînes/médias marqués en favori (identifiés par leur source/URL).
+    pub favorites: Vec<String>,
 }
 
 impl Default for Settings {
@@ -92,6 +94,7 @@ impl Default for Settings {
             opensubtitles_api_key: String::new(),
             subtitle_language: "fr".to_string(),
             language: "auto".to_string(),
+            favorites: Vec::new(),
         }
     }
 }
@@ -168,6 +171,22 @@ impl Settings {
     /// État mémorisé pour un média, le cas échéant.
     pub fn media_state(&self, source: &str) -> Option<MediaState> {
         self.media_states.get(source).cloned()
+    }
+
+    /// La source est-elle marquée en favori ?
+    pub fn is_favorite(&self, source: &str) -> bool {
+        self.favorites.iter().any(|f| f == source)
+    }
+
+    /// Bascule l'état favori d'une source ; renvoie le nouvel état.
+    pub fn toggle_favorite(&mut self, source: &str) -> bool {
+        if let Some(pos) = self.favorites.iter().position(|f| f == source) {
+            self.favorites.remove(pos);
+            false
+        } else {
+            self.favorites.push(source.to_string());
+            true
+        }
     }
 
     /// Résout la langue d'interface effective (`"fr"` ou `"en"`).
@@ -255,6 +274,16 @@ mod tests {
         // Valeur inconnue → repli français.
         s.language = "de".to_string();
         assert_eq!(s.resolve_language(), "fr");
+    }
+
+    #[test]
+    fn favorites_toggle() {
+        let mut s = Settings::default();
+        assert!(!s.is_favorite("http://ex/a"));
+        assert!(s.toggle_favorite("http://ex/a")); // ajouté
+        assert!(s.is_favorite("http://ex/a"));
+        assert!(!s.toggle_favorite("http://ex/a")); // retiré
+        assert!(!s.is_favorite("http://ex/a"));
     }
 
     #[test]

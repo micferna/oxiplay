@@ -187,6 +187,10 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
         .set_playlist_search(&t));
     on!(on_playlist_group_selected, |a, idx: i32| a
         .set_playlist_group(idx));
+    on!(on_playlist_toggle_favorite, |a, idx: i32| a
+        .toggle_favorite(idx.max(0) as usize));
+    on!(on_playlist_toggle_favorites_filter, |a| a
+        .toggle_favorites_filter());
     on_dialog!(on_playlist_save, |app| async move {
         if let Some(file) = rfd::AsyncFileDialog::new()
             .set_title("Enregistrer la playlist")
