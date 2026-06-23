@@ -25,6 +25,10 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   barre de contrôles flottante réapparaît au survol du bas.
 
 ### Ajouté
+- **Mémorisation de la taille de fenêtre** : la fenêtre rouvre à la taille de la
+  session précédente (la taille réelle est lue via `root.width/height`, plus
+  fiable que `window().size()`). La position n'est pas mémorisée (gérée par le
+  compositeur, no-op sous Wayland).
 - **Favoris de chaînes** : bouton ★ par entrée de playlist (persisté par URL) et
   filtre « favoris uniquement », combinable avec la recherche et la catégorie.
 - **Sous-titres « sidecar » automatiques** : à l'ouverture d'un fichier local, un

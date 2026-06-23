@@ -75,6 +75,18 @@ pub struct Settings {
     pub language: String,
     /// Chaînes/médias marqués en favori (identifiés par leur source/URL).
     pub favorites: Vec<String>,
+    /// Dernière géométrie de la fenêtre (`None` = laisser le défaut). Restaurée
+    /// au lancement.
+    pub window: Option<WindowGeometry>,
+}
+
+/// Taille de la fenêtre, en pixels **logiques** (la position n'est pas
+/// mémorisée : sous Wayland l'application ne peut pas se placer, et le
+/// gestionnaire de fenêtres s'en charge).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowGeometry {
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Default for Settings {
@@ -95,6 +107,7 @@ impl Default for Settings {
             subtitle_language: "fr".to_string(),
             language: "auto".to_string(),
             favorites: Vec::new(),
+            window: None,
         }
     }
 }
