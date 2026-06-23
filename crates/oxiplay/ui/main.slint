@@ -8,6 +8,7 @@ import { Button, Slider, ComboBox, ListView, LineEdit } from "std-widgets.slint"
 export struct PlaylistEntry {
     title: string,
     is-current: bool,
+    is-favorite: bool,
 }
 
 // Bouton compact à base de texte (icônes unicode).
@@ -310,6 +311,7 @@ export component MainWindow inherits Window {
     in property <[PlaylistEntry]> playlist-entries: [];
     in property <[string]> playlist-groups: []; // catégories pour le filtre IPTV
     in-out property <string> playlist-search;
+    in property <bool> favorites-only; // filtre « favoris uniquement » actif
     in property <[string]> audio-tracks: [];
     in property <[string]> subtitle-tracks: [];
     in property <[string]> audio-devices: [];
@@ -364,6 +366,8 @@ export component MainWindow inherits Window {
     callback playlist-load();
     callback playlist-search-changed(string);
     callback playlist-group-selected(int);
+    callback playlist-toggle-favorite(int);  // (dé)marque une entrée en favori
+    callback playlist-toggle-favorites-filter(); // bascule le filtre « favoris »
     callback audio-track-selected(int);
     callback subtitle-track-selected(int);
     callback audio-device-selected(int);
@@ -882,11 +886,23 @@ export component MainWindow inherits Window {
                             font-weight: 700;
                         }
 
-                        // Recherche par nom (utile pour les annuaires IPTV).
-                        LineEdit {
-                            placeholder-text: @tr("Rechercher une chaîne…");
-                            text <=> root.playlist-search;
-                            edited => { root.playlist-search-changed(self.text); }
+                        // Recherche par nom (utile pour les annuaires IPTV) +
+                        // bascule du filtre « favoris uniquement ».
+                        HorizontalLayout {
+                            spacing: 4px;
+                            LineEdit {
+                                horizontal-stretch: 1;
+                                placeholder-text: @tr("Rechercher une chaîne…");
+                                text <=> root.playlist-search;
+                                edited => { root.playlist-search-changed(self.text); }
+                            }
+                            ToolButton {
+                                text: root.favorites-only ? "★" : "☆";
+                                tip: @tr("Favoris uniquement");
+                                dark: root.dark;
+                                active: root.favorites-only;
+                                clicked => { root.playlist-toggle-favorites-filter(); }
+                            }
                         }
                         // Filtre par catégorie / pays, dès qu'il y en a plusieurs.
                         if root.playlist-groups.length > 1: ComboBox {
@@ -918,6 +934,7 @@ export component MainWindow inherits Window {
                                         overflow: elide;
                                         horizontal-stretch: 1;
                                     }
+                                    ToolButton { text: entry.is-favorite ? "★" : "☆"; tip: @tr("Favori"); dark: root.dark; active: entry.is-favorite; width: 24px; clicked => { root.playlist-toggle-favorite(idx); } }
                                     ToolButton { text: "▲"; dark: root.dark; width: 24px; clicked => { root.playlist-shift(idx, -1); } }
                                     ToolButton { text: "▼"; dark: root.dark; width: 24px; clicked => { root.playlist-shift(idx, 1); } }
                                     ToolButton { text: "✕"; dark: root.dark; width: 24px; clicked => { root.playlist-remove(idx); } }

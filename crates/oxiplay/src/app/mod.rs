@@ -44,6 +44,8 @@ pub struct App {
     playlist_search: String,
     /// Catégorie/pays sélectionnée pour le filtre (vide = toutes).
     playlist_group: String,
+    /// Filtre « favoris uniquement » actif.
+    playlist_favorites_only: bool,
     /// Catégories distinctes présentes (pour mapper l'index du ComboBox).
     playlist_groups: Vec<String>,
     /// Indices d'items affichés (ligne visible → index réel), pour mapper les
@@ -137,6 +139,7 @@ impl App {
             playlist: Playlist::default(),
             playlist_search: String::new(),
             playlist_group: String::new(),
+            playlist_favorites_only: false,
             playlist_groups: Vec::new(),
             playlist_visible: Vec::new(),
             current_source: None,
@@ -735,18 +738,44 @@ impl App {
         let mut entries = Vec::new();
         let mut visible = Vec::new();
         for (i, item) in self.playlist.items().iter().enumerate() {
+            let favorite = self.settings.is_favorite(&item.source);
             let by_group = self.playlist_group.is_empty() || item.group == self.playlist_group;
             let by_search = search.is_empty() || item.title.to_lowercase().contains(&search);
-            if by_group && by_search {
+            let by_fav = !self.playlist_favorites_only || favorite;
+            if by_group && by_search && by_fav {
                 entries.push(PlaylistEntry {
                     title: item.title.clone().into(),
                     is_current: Some(i) == current,
+                    is_favorite: favorite,
                 });
                 visible.push(i);
             }
         }
         self.playlist_visible = visible;
         ui.set_playlist_entries(ModelRc::from(Rc::new(VecModel::from(entries))));
+    }
+
+    /// (Dé)marque l'entrée affichée en favori et persiste le choix.
+    pub fn toggle_favorite(&mut self, index: usize) {
+        let Some(&real) = self.playlist_visible.get(index) else {
+            return;
+        };
+        let Some(item) = self.playlist.items().get(real) else {
+            return;
+        };
+        let source = item.source.clone();
+        self.settings.toggle_favorite(&source);
+        self.settings.save();
+        self.refresh_playlist_model();
+    }
+
+    /// Bascule le filtre « favoris uniquement ».
+    pub fn toggle_favorites_filter(&mut self) {
+        self.playlist_favorites_only = !self.playlist_favorites_only;
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_favorites_only(self.playlist_favorites_only);
+        }
+        self.refresh_playlist_model();
     }
 
     /// Recalcule les catégories distinctes (pour le ComboBox de filtre). À
