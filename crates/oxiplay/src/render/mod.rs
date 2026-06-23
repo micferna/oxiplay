@@ -51,6 +51,7 @@ struct Planes {
     height: u32,
     chroma_width: u32,
     chroma_height: u32,
+    bytes_per_sample: u32,
 }
 
 /// Pipeline de rendu vidéo GPU, partageant le device/queue de Slint.
@@ -271,10 +272,18 @@ impl GpuVideoRenderer {
             &self.planes,
             Some(p) if p.width == frame.width && p.height == frame.height
                 && p.chroma_width == frame.chroma_width && p.chroma_height == frame.chroma_height
+                && p.bytes_per_sample == frame.bytes_per_sample
         );
         if ok {
             return;
         }
+        // R16 pour le 10/16 bits (HDR P010), R8 sinon. Le shader échantillonne
+        // en [0,1] dans les deux cas (R16 normalise le P010 aligné en haut).
+        let format = if frame.bytes_per_sample == 2 {
+            wgpu::TextureFormat::R16Unorm
+        } else {
+            wgpu::TextureFormat::R8Unorm
+        };
         let make = |w: u32, h: u32, label: &str| {
             self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
@@ -286,7 +295,7 @@ impl GpuVideoRenderer {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
+                format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             })
@@ -299,6 +308,7 @@ impl GpuVideoRenderer {
             height: frame.height,
             chroma_width: frame.chroma_width,
             chroma_height: frame.chroma_height,
+            bytes_per_sample: frame.bytes_per_sample,
         });
     }
 }

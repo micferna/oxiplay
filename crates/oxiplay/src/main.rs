@@ -25,12 +25,20 @@ fn main() -> anyhow::Result<()> {
     // partager son device. En cas d'échec (drivers, environnement sans GPU),
     // repli silencieux sur le backend par défaut — l'app démarre quand même.
     #[cfg(feature = "gpu")]
-    match slint::BackendSelector::new()
-        .require_wgpu_28(slint::wgpu_28::WGPUConfiguration::default())
-        .select()
     {
-        Ok(()) => log::info!("backend wgpu sélectionné"),
-        Err(e) => log::warn!("backend wgpu indisponible, repli logiciel : {e}"),
+        // R16Unorm (textures des plans HDR 10 bits / P010) requiert cette
+        // feature de device — universelle sur GPU de bureau. Si l'adaptateur ne
+        // la propose pas, la sélection wgpu échoue et on retombe en logiciel.
+        let mut settings = slint::wgpu_28::WGPUSettings::default();
+        settings.device_required_features |=
+            slint::wgpu_28::wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
+        match slint::BackendSelector::new()
+            .require_wgpu_28(slint::wgpu_28::WGPUConfiguration::Automatic(settings))
+            .select()
+        {
+            Ok(()) => log::info!("backend wgpu sélectionné"),
+            Err(e) => log::warn!("backend wgpu indisponible, repli logiciel : {e}"),
+        }
     }
 
     let main_window = MainWindow::new()?;
