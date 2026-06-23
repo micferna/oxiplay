@@ -552,17 +552,19 @@ fn extract_yuv(decoded: &ffmpeg::frame::Video) -> Option<crate::video::YuvFrame>
         .get(..y_stride as usize * height as usize)?
         .to_vec();
 
-    // Plans chroma : déjà planaires (yuv420p) ou entrelacés U/V (nv12).
-    let (u, v, uv_stride) = match decoded.format() {
+    // Plans chroma : planaire (yuv420p), semi-planaire 8 bits (nv12) ou
+    // semi-planaire 16 bits (p010, sortie HDR de NVDEC). `bytes_per_sample`
+    // sélectionne le format de texture côté GPU (R8 vs R16).
+    let (u, v, uv_stride, bytes_per_sample) = match decoded.format() {
         Pixel::YUV420P => {
             let stride = decoded.stride(1);
             let len = stride * chroma_height as usize;
             let u = decoded.data(1).get(..len)?.to_vec();
             let v = decoded.data(2).get(..len)?.to_vec();
-            (u, v, stride as u32)
+            (u, v, stride as u32, 1)
         }
         Pixel::NV12 => {
-            // Plan UV entrelacé (U,V,U,V…) → deux plans compacts.
+            // Plan UV entrelacé (U,V,U,V…) → deux plans compacts 8 bits.
             let stride = decoded.stride(1);
             let (cw, ch) = (chroma_width as usize, chroma_height as usize);
             let uv = decoded.data(1);
@@ -575,7 +577,24 @@ fn extract_yuv(decoded: &ffmpeg::frame::Video) -> Option<crate::video::YuvFrame>
                     v.push(px[1]);
                 }
             }
-            (u, v, chroma_width)
+            (u, v, chroma_width, 1)
+        }
+        Pixel::P010LE => {
+            // Semi-planaire 16 bits (10 bits alignés en haut) : paires U,V de
+            // 16 bits → deux plans compacts 16 bits (octets LE conservés).
+            let stride = decoded.stride(1);
+            let (cw, ch) = (chroma_width as usize, chroma_height as usize);
+            let uv = decoded.data(1);
+            let mut u = Vec::with_capacity(cw * ch * 2);
+            let mut v = Vec::with_capacity(cw * ch * 2);
+            for row in 0..ch {
+                let line = uv.get(row * stride..row * stride + cw * 4)?;
+                for px in line.chunks_exact(4) {
+                    u.extend_from_slice(&px[0..2]); // U 16 bits LE
+                    v.extend_from_slice(&px[2..4]); // V 16 bits LE
+                }
+            }
+            (u, v, chroma_width * 2, 2)
         }
         _ => return None,
     };
@@ -604,6 +623,7 @@ fn extract_yuv(decoded: &ffmpeg::frame::Video) -> Option<crate::video::YuvFrame>
         uv_stride,
         chroma_width,
         chroma_height,
+        bytes_per_sample,
         matrix,
         full_range,
         transfer,

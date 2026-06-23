@@ -35,6 +35,10 @@ pub struct YuvFrame {
     pub uv_stride: u32,
     pub chroma_width: u32,
     pub chroma_height: u32,
+    /// Octets par échantillon : 1 (8 bits, textures R8) ou 2 (10/16 bits,
+    /// textures R16, contenu HDR P010). Le shader échantillonne en [0,1] dans
+    /// les deux cas (R16 normalise directement le P010 aligné en haut).
+    pub bytes_per_sample: u32,
     /// 0 = BT.601, 1 = BT.709, 2 = BT.2020.
     pub matrix: u32,
     /// 0 = plage limitée, 1 = plage complète.

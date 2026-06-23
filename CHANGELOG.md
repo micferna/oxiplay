@@ -33,12 +33,12 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
 - **Rendu vidéo GPU (expérimental, feature `gpu`)** : pipeline wgpu YUV→RGB +
   tone-mapping HDR (PQ/HLG) **branché au runtime** et validé à l'écran. Le
   backend wgpu est forcé (avec repli logiciel automatique si l'init GPU échoue),
-  son device est capturé via le notifier de rendu Slint, et les images `yuv420p`
-  8 bits sont converties par le shader puis importées comme texture
-  (`slint::Image::try_from`). Repli RGBA/swscale pour les autres formats, les
-  sous-titres image et les captures d'écran. Reste à venir : 10 bits / HDR
-  (textures 16 bits) et suppression du double-travail swscale. Voir
-  `docs/RENDER_WGPU.md`.
+  son device est capturé via le notifier de rendu Slint, et les images sont
+  converties par le shader puis importées comme texture (`slint::Image::try_from`).
+  Formats accélérés : `yuv420p` 8 bits, `nv12` (sortie NVDEC/VAAPI) et **`p010`
+  10 bits HDR** (textures R16, tonemap PQ/HLG). Repli RGBA/swscale pour les
+  autres formats, les sous-titres image et les captures d'écran. Reste à venir :
+  suppression du double-travail swscale. Voir `docs/RENDER_WGPU.md`.
 - **Vérification de mise à jour au lancement** : interroge l'API GitHub Releases
   en arrière-plan et signale (bannière cliquable dans la barre d'outils) qu'une
   version plus récente est disponible. Désactivable (`check_updates`).
