@@ -1,8 +1,9 @@
 name: Release
 
 # Déclenché par un tag `vX.Y.Z` (préreleases `vX.Y.Z-dev.N` incluses) :
-# construit les artefacts Linux (.deb, tar.gz, AppImage) et Windows (.exe,
-# signé si un certificat est fourni) et crée la release GitHub correspondante.
+# construit les artefacts Linux (.deb, tar.gz, AppImage) et Windows (.zip
+# portable + installeur .msi, .exe signé si un certificat est fourni), tous avec
+# le rendu GPU activé (repli GL), puis crée la release GitHub correspondante.
 on:
   push:
     tags: ["v*"]
@@ -24,8 +25,8 @@ jobs:
             libavdevice-dev libasound2-dev libfontconfig-dev file
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build release
-        run: cargo build --release -p oxiplay
+      - name: Build release (rendu GPU + repli GL)
+        run: cargo build --release -p oxiplay --features gpu
       - name: Paquet .deb
         run: |
           cargo install cargo-deb --locked
@@ -62,7 +63,7 @@ jobs:
             OxiPlay-*-x86_64.AppImage
 
   windows:
-    name: Artefacts Windows (.exe)
+    name: Artefacts Windows (.zip + .msi)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -78,8 +79,8 @@ jobs:
           echo "$dir\bin" >> $env:GITHUB_PATH
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build release
-        run: cargo build --release -p oxiplay
+      - name: Build release (rendu GPU + repli GL)
+        run: cargo build --release -p oxiplay --features gpu
       - name: Bundle (.exe + DLLs FFmpeg)
         shell: pwsh
         run: |
@@ -108,10 +109,27 @@ jobs:
           & $signtool sign /f cert.pfx /p $env:CERT_PW `
             /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist\oxiplay.exe
           Remove-Item cert.pfx
-      - name: Archive zip
+      - name: Archive zip (portable)
         shell: pwsh
         run: Compress-Archive -Path dist\* -DestinationPath "oxiplay-$env:GITHUB_REF_NAME-windows-x86_64.zip"
+      - name: Installeur .msi (WiX)
+        shell: pwsh
+        run: |
+          choco install wixtoolset --no-progress -y
+          $bin = (Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin\heat.exe" |
+            Sort-Object FullName | Select-Object -Last 1).DirectoryName
+          # Version numérique pour l'MSI : « v0.2.0-dev.5 » → « 0.2.0 ».
+          $ver = ($env:GITHUB_REF_NAME -replace '^v', '' -replace '-.*$', '')
+          # Récolte tout le contenu de dist\ (exe + DLLs + docs) en composants.
+          & "$bin\heat.exe" dir dist -cg AppFiles -dr INSTALLFOLDER -srd -sreg -gg `
+            -var var.DistDir -out AppFiles.wxs
+          & "$bin\candle.exe" -arch x64 -dVersion=$ver -dDistDir=dist `
+            packaging\windows\oxiplay.wxs AppFiles.wxs
+          & "$bin\light.exe" -sval -o "oxiplay-$env:GITHUB_REF_NAME-windows-x86_64.msi" `
+            packaging\windows\oxiplay.wxs AppFiles.wxs
       - name: Release GitHub
         uses: softprops/action-gh-release@v3
         with:
-          files: oxiplay-*-windows-x86_64.zip
+          files: |
+            oxiplay-*-windows-x86_64.zip
+            oxiplay-*-windows-x86_64.msi
