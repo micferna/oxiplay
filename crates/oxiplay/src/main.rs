@@ -21,7 +21,36 @@ fn main() -> anyhow::Result<()> {
     // Réduit la verbosité des bibliothèques FFmpeg elles-mêmes.
     ffmpeg_the_third::util::log::set_level(ffmpeg_the_third::util::log::Level::Error);
 
+    // Rendu vidéo GPU (feature `gpu`) : on force le backend wgpu pour pouvoir
+    // partager son device. En cas d'échec (drivers, environnement sans GPU),
+    // repli silencieux sur le backend par défaut — l'app démarre quand même.
+    #[cfg(feature = "gpu")]
+    match slint::BackendSelector::new()
+        .require_wgpu_28(slint::wgpu_28::WGPUConfiguration::default())
+        .select()
+    {
+        Ok(()) => log::info!("backend wgpu sélectionné"),
+        Err(e) => log::warn!("backend wgpu indisponible, repli logiciel : {e}"),
+    }
+
     let main_window = MainWindow::new()?;
+
+    // Capture le device/queue wgpu fournis par Slint pour brancher le pipeline
+    // de rendu vidéo GPU. Si le backend retenu n'est pas wgpu (repli ci-dessus),
+    // le notifier ne reçoit jamais `WGPU28` et le rendu reste logiciel.
+    #[cfg(feature = "gpu")]
+    if let Err(e) = main_window.window().set_rendering_notifier(|state, api| {
+        if let (
+            slint::RenderingState::RenderingSetup,
+            slint::GraphicsAPI::WGPU28 { device, queue, .. },
+        ) = (state, api)
+        {
+            oxiplay::render::init_renderer(device.clone(), queue.clone());
+            log::info!("rendu vidéo GPU wgpu actif");
+        }
+    }) {
+        log::warn!("notifier de rendu indisponible : {e}");
+    }
 
     // Langue de l'interface (traductions bundlées, voir build.rs). Le français
     // est la langue source : on ne sélectionne une traduction que pour les
@@ -60,6 +89,16 @@ fn main() -> anyhow::Result<()> {
     main_window.run()?;
 
     app.borrow_mut().shutdown();
+
+    // Avec le backend wgpu, la destruction du device Vulkan plante au teardown
+    // sur certains pilotes (dialogue « application forcée à quitter » alors que
+    // la lecture s'est déroulée normalement). L'état utilisateur étant déjà
+    // persisté par `shutdown()` ci-dessus, on termine immédiatement le
+    // processus sans dérouler les destructeurs graphiques problématiques.
+    #[cfg(feature = "gpu")]
+    std::process::exit(0);
+
+    #[cfg(not(feature = "gpu"))]
     Ok(())
 }
 
@@ -75,14 +114,51 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
         }};
     }
 
+    // Variante pour les sélecteurs de fichiers : on lance un dialogue
+    // **asynchrone** sur l'événementiel (`slint::spawn_local`) au lieu d'un
+    // dialogue bloquant qui gèlerait la fenêtre (« ne répond pas »). Le futur
+    // capture l'`App` et applique le résultat une fois la sélection faite.
+    macro_rules! on_dialog {
+        ($setter:ident, |$app:ident| $fut:expr) => {{
+            let app = Rc::clone(app);
+            ui.$setter(move || {
+                let $app = Rc::clone(&app);
+                let _ = slint::spawn_local($fut);
+            });
+        }};
+    }
+
     on!(on_play_pause, |a| a.play_pause());
     on!(on_stop_playback, |a| a.stop());
     on!(on_seek_to, |a, fraction: f32| a.seek_fraction(fraction));
     on!(on_seek_relative, |a, secs: f32| a.seek_relative(secs));
     on!(on_previous_item, |a| a.previous());
     on!(on_next_item, |a| a.next());
-    on!(on_open_files, |a| a.add_files_dialog());
-    on!(on_open_bluray, |a| a.open_bluray_dialog());
+    on_dialog!(on_open_files, |app| async move {
+        if let Some(files) = rfd::AsyncFileDialog::new()
+            .set_title("Ouvrir des médias")
+            .add_filter("Médias", oxiplay::app::MEDIA_EXTENSIONS)
+            .add_filter("Tous les fichiers", &["*"])
+            .pick_files()
+            .await
+        {
+            let sources = files
+                .iter()
+                .map(|f| f.path().to_string_lossy().into_owned())
+                .collect();
+            app.borrow_mut().add_sources(sources);
+        }
+    });
+    on_dialog!(on_open_bluray, |app| async move {
+        if let Some(dir) = rfd::AsyncFileDialog::new()
+            .set_title("Ouvrir un dossier ou disque Blu-ray (BDMV)")
+            .pick_folder()
+            .await
+        {
+            app.borrow_mut()
+                .add_sources(vec![dir.path().to_string_lossy().into_owned()]);
+        }
+    });
     on!(on_open_url, |a, url: slint::SharedString| a.open_url(&url));
     on!(on_open_recent, |a, index: i32| a.open_recent(index));
     on!(on_volume_changed, |a, v: f32| a.set_volume(v));
@@ -99,15 +175,45 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
         .playlist_remove(idx.max(0) as usize));
     on!(on_playlist_shift, |a, idx: i32, delta: i32| a
         .playlist_shift(idx.max(0) as usize, delta));
-    on!(on_playlist_save, |a| a.playlist_save_dialog());
-    on!(on_playlist_load, |a| a.playlist_load_dialog());
+    on_dialog!(on_playlist_save, |app| async move {
+        if let Some(file) = rfd::AsyncFileDialog::new()
+            .set_title("Enregistrer la playlist")
+            .add_filter("Playlist M3U", &["m3u", "m3u8"])
+            .set_file_name("playlist.m3u")
+            .save_file()
+            .await
+        {
+            app.borrow_mut().save_playlist_to(file.path().to_path_buf());
+        }
+    });
+    on_dialog!(on_playlist_load, |app| async move {
+        if let Some(file) = rfd::AsyncFileDialog::new()
+            .set_title("Charger une playlist")
+            .add_filter("Playlist M3U", &["m3u", "m3u8"])
+            .pick_file()
+            .await
+        {
+            app.borrow_mut()
+                .load_playlist_from(file.path().to_path_buf());
+        }
+    });
     on!(on_audio_track_selected, |a, idx: i32| a
         .select_audio_track(idx));
     on!(on_audio_device_selected, |a, idx: i32| a
         .select_audio_device(idx));
     on!(on_subtitle_track_selected, |a, idx: i32| a
         .select_subtitle_track(idx));
-    on!(on_load_subtitle_file, |a| a.load_subtitle_dialog());
+    on_dialog!(on_load_subtitle_file, |app| async move {
+        if let Some(file) = rfd::AsyncFileDialog::new()
+            .set_title("Charger des sous-titres")
+            .add_filter("Sous-titres", oxiplay::app::SUBTITLE_EXTENSIONS)
+            .pick_file()
+            .await
+        {
+            app.borrow_mut()
+                .load_subtitle_path(file.path().to_path_buf());
+        }
+    });
     on!(on_search_online_subs, |a| a.search_online_subtitles());
     on!(on_sub_delay_adjust, |a, delta: f32| a
         .adjust_subtitle_delay(delta));

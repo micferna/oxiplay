@@ -27,11 +27,11 @@ pub const SPEEDS: [f64; 9] = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0];
 pub const SPEED_NORMAL_INDEX: i32 = 3;
 
 /// Filtres de fichiers des boîtes de dialogue.
-const MEDIA_EXTENSIONS: &[&str] = &[
+pub const MEDIA_EXTENSIONS: &[&str] = &[
     "mp4", "mkv", "avi", "mov", "webm", "mpg", "mpeg", "flv", "ts", "m2ts", "wmv", "ogv", "mp3",
     "flac", "wav", "ogg", "oga", "aac", "m4a", "opus", "wma", "iso",
 ];
-const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "vtt"];
+pub const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "vtt"];
 
 /// État applicatif principal (vivant sur le thread d'interface).
 pub struct App {
@@ -583,33 +583,11 @@ impl App {
         }
     }
 
-    pub fn add_files_dialog(&mut self) {
-        let files = rfd::FileDialog::new()
-            .set_title("Ouvrir des médias")
-            .add_filter("Médias", MEDIA_EXTENSIONS)
-            .add_filter("Tous les fichiers", &["*"])
-            .pick_files()
-            .unwrap_or_default();
-        self.add_sources(
-            files
-                .into_iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect(),
-        );
-    }
-
-    /// Ouvre un dossier ou disque Blu-ray (structure BDMV). Le chemin est
-    /// transformé en source `bluray:` à l'ouverture (voir
-    /// [`crate::streaming::normalize_source`]). Les disques **chiffrés**
-    /// (AACS, UHD 4K) ne sont pas pris en charge (clés non fournies).
-    pub fn open_bluray_dialog(&mut self) {
-        if let Some(dir) = rfd::FileDialog::new()
-            .set_title("Ouvrir un dossier ou disque Blu-ray (BDMV)")
-            .pick_folder()
-        {
-            self.add_sources(vec![dir.to_string_lossy().into_owned()]);
-        }
-    }
+    // Les sélecteurs de fichiers sont ouverts en mode **asynchrone** depuis le
+    // câblage (`main.rs`, via `slint::spawn_local`) pour ne pas bloquer
+    // l'événementiel — un dialogue synchrone gèlerait la fenêtre (« ne répond
+    // pas »). Files & Blu-ray retombent sur [`Self::add_sources`] ; les autres
+    // sélections sont livrées aux handlers `*_path` / `*_to` ci-dessous.
 
     pub fn open_url(&mut self, url: &str) {
         let url = url.trim();
@@ -655,29 +633,16 @@ impl App {
         self.refresh_playlist_model();
     }
 
-    pub fn playlist_save_dialog(&mut self) {
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Enregistrer la playlist")
-            .add_filter("Playlist M3U", &["m3u", "m3u8"])
-            .set_file_name("playlist.m3u")
-            .save_file()
-        else {
-            return;
-        };
+    /// Enregistre la playlist au chemin choisi (sélection faite en amont).
+    pub fn save_playlist_to(&mut self, path: std::path::PathBuf) {
         match self.playlist.save_m3u(&path) {
             Ok(()) => self.set_status(&format!("Playlist enregistrée : {}", path.display())),
             Err(e) => self.set_status(&format!("Échec d'enregistrement : {e}")),
         }
     }
 
-    pub fn playlist_load_dialog(&mut self) {
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Charger une playlist")
-            .add_filter("Playlist M3U", &["m3u", "m3u8"])
-            .pick_file()
-        else {
-            return;
-        };
+    /// Charge une playlist M3U depuis le chemin choisi (sélection faite en amont).
+    pub fn load_playlist_from(&mut self, path: std::path::PathBuf) {
         match self.playlist.load_m3u(&path) {
             Ok(n) => {
                 self.set_status(&format!("{n} entrées chargées"));
@@ -763,16 +728,10 @@ impl App {
         }
     }
 
-    pub fn load_subtitle_dialog(&mut self) {
+    /// Charge des sous-titres externes depuis le chemin choisi.
+    pub fn load_subtitle_path(&mut self, path: std::path::PathBuf) {
         let Some(engine) = &self.engine else {
             self.set_status("Ouvrez d'abord un média");
-            return;
-        };
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Charger des sous-titres")
-            .add_filter("Sous-titres", SUBTITLE_EXTENSIONS)
-            .pick_file()
-        else {
             return;
         };
         match crate::subtitles::load_file(&path) {

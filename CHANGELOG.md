@@ -11,6 +11,11 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   colorimétrique (BT.709, BT.2020, BT.601…) et la plage (limitée/complète)
   signalés par le décodeur, au lieu de supposer BT.601 — ce qui décalait les
   couleurs de tout le contenu HD et HDR.
+- **Sélecteurs de fichiers non bloquants** : l'ouverture de médias, sous-titres
+  et playlists passe par des dialogues **asynchrones** (`slint::spawn_local` +
+  `rfd::AsyncFileDialog`). L'ancien dialogue synchrone gelait l'événementiel le
+  temps de la navigation, ce que GNOME signalait par « l'application ne répond
+  pas / Forcer à quitter ».
 
 ### Ajouté
 - **Interface bilingue français / anglais** (i18n) : les libellés de l'interface
@@ -26,10 +31,14 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   de page est automatiquement résolue en flux direct si yt-dlp est installé ;
   repli transparent sur l'URL d'origine sinon (aucune régression).
 - **Rendu vidéo GPU (expérimental, feature `gpu`)** : pipeline wgpu YUV→RGB +
-  tone-mapping HDR (PQ/HLG) prêt — module `render/` compilé et vérifié en CI,
-  shader WGSL validé par naga. Le câblage runtime (sortie YUV du décodeur,
-  partage du device Slint) et la justesse visuelle restent à finaliser sur
-  écran. Voir `docs/RENDER_WGPU.md`.
+  tone-mapping HDR (PQ/HLG) **branché au runtime** et validé à l'écran. Le
+  backend wgpu est forcé (avec repli logiciel automatique si l'init GPU échoue),
+  son device est capturé via le notifier de rendu Slint, et les images `yuv420p`
+  8 bits sont converties par le shader puis importées comme texture
+  (`slint::Image::try_from`). Repli RGBA/swscale pour les autres formats, les
+  sous-titres image et les captures d'écran. Reste à venir : 10 bits / HDR
+  (textures 16 bits) et suppression du double-travail swscale. Voir
+  `docs/RENDER_WGPU.md`.
 - **Vérification de mise à jour au lancement** : interroge l'API GitHub Releases
   en arrière-plan et signale (bannière cliquable dans la barre d'outils) qu'une
   version plus récente est disponible. Désactivable (`check_updates`).

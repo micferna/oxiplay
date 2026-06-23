@@ -8,9 +8,45 @@
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// Vrai quand le rendu vidéo GPU (wgpu) est actif. Renseigné par le module
+/// [`crate::render`] une fois le device Slint capturé ; lu par le décodeur
+/// pour décider d'extraire les plans YUV. Toujours `false` sans la feature `gpu`.
+pub static GPU_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Le rendu GPU est-il actif ? (voir [`GPU_ACTIVE`].)
+pub fn gpu_active() -> bool {
+    GPU_ACTIVE.load(Ordering::Relaxed)
+}
+
+/// Plans YUV planaires 8 bits (4:2:0) d'une image décodée, avec ses
+/// métadonnées colorimétriques — alimente le shader de conversion GPU.
+#[derive(Debug, Clone)]
+pub struct YuvFrame {
+    pub width: u32,
+    pub height: u32,
+    pub y: Vec<u8>,
+    pub u: Vec<u8>,
+    pub v: Vec<u8>,
+    pub y_stride: u32,
+    pub uv_stride: u32,
+    pub chroma_width: u32,
+    pub chroma_height: u32,
+    /// 0 = BT.601, 1 = BT.709, 2 = BT.2020.
+    pub matrix: u32,
+    /// 0 = plage limitée, 1 = plage complète.
+    pub full_range: u32,
+    /// 0 = SDR, 1 = HDR PQ, 2 = HDR HLG.
+    pub transfer: u32,
+}
+
 /// Une image vidéo décodée, en RGBA8 compact (stride == width * 4).
+///
+/// `yuv` est renseigné uniquement quand le chemin GPU est actif (plans bruts
+/// pour le shader) ; le RGBA reste toujours présent (captures d'écran,
+/// incrustation des sous-titres image, repli logiciel).
 #[derive(Debug, Clone)]
 pub struct VideoFrameData {
     pub width: u32,
@@ -19,6 +55,8 @@ pub struct VideoFrameData {
     pub pixels: Vec<u8>,
     /// Horodatage de présentation en temps média (µs).
     pub pts_us: i64,
+    /// Plans YUV pour le rendu GPU (`None` = chemin logiciel RGBA).
+    pub yuv: Option<YuvFrame>,
 }
 
 /// Enregistre une image en PNG dans le dossier Images de l'utilisateur
@@ -55,6 +93,7 @@ mod tests {
             height: 2,
             pixels: vec![255; 2 * 2 * 4],
             pts_us: 0,
+            yuv: None,
         });
         let path = save_screenshot(&frame).unwrap();
         let data = std::fs::read(&path).unwrap();

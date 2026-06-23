@@ -371,6 +371,10 @@ fn composite_bitmap_subtitles(shared: &Arc<SharedState>, frame: &mut VideoFrameD
     if bitmaps.is_empty() {
         return;
     }
+    // Une piste de sous-titres image est chargée : l'incrustation se fait sur
+    // le RGBA. On désactive le chemin GPU (qui afficherait le YUV sans les
+    // sous-titres) pour cette image.
+    frame.yuv = None;
     let delay = shared
         .subtitle_delay_us
         .load(std::sync::atomic::Ordering::Relaxed);
@@ -510,10 +514,80 @@ fn convert_frame(
         .unwrap_or(*last_pts_us + 33_333);
     *last_pts_us = pts_us;
 
+    // Chemin GPU : on extrait aussi les plans YUV bruts (le RGBA reste produit
+    // pour les captures, l'incrustation des sous-titres image et le repli).
+    let yuv = if crate::video::gpu_active() {
+        extract_yuv(decoded)
+    } else {
+        None
+    };
+
     Ok(VideoFrameData {
         width,
         height,
         pixels,
         pts_us,
+        yuv,
+    })
+}
+
+/// Extrait les plans YUV planaires 8 bits (4:2:0) d'une image décodée pour le
+/// rendu GPU. Renvoie `None` pour tout autre format (le chemin RGBA logiciel
+/// prend alors le relais) — l'Étape A ne couvre que `yuv420p`.
+fn extract_yuv(decoded: &ffmpeg::frame::Video) -> Option<crate::video::YuvFrame> {
+    use ffmpeg::color::{Range, Space, TransferCharacteristic};
+    use ffmpeg::format::Pixel;
+
+    if decoded.format() != Pixel::YUV420P {
+        return None;
+    }
+    let (width, height) = (decoded.width(), decoded.height());
+    let y_stride = decoded.stride(0) as u32;
+    let uv_stride = decoded.stride(1) as u32;
+    let chroma_width = width.div_ceil(2);
+    let chroma_height = height.div_ceil(2);
+
+    // `.get(..len)?` plutôt qu'un indexage : aucune panique si un plan annoncé
+    // est plus court que prévu (fichier malformé).
+    let y = decoded
+        .data(0)
+        .get(..y_stride as usize * height as usize)?
+        .to_vec();
+    let u = decoded
+        .data(1)
+        .get(..uv_stride as usize * chroma_height as usize)?
+        .to_vec();
+    let v = decoded
+        .data(2)
+        .get(..uv_stride as usize * chroma_height as usize)?
+        .to_vec();
+
+    let matrix = match decoded.color_space() {
+        Space::BT709 => 1,
+        Space::BT2020NCL | Space::BT2020CL => 2,
+        // Inconnu : SD → BT.601, HD/UHD → BT.709 (même heuristique que swscale).
+        _ if height <= 576 => 0,
+        _ => 1,
+    };
+    let full_range = u32::from(matches!(decoded.color_range(), Range::JPEG));
+    let transfer = match decoded.color_transfer_characteristic() {
+        TransferCharacteristic::SMPTE2084 => 1,    // PQ
+        TransferCharacteristic::ARIB_STD_B67 => 2, // HLG
+        _ => 0,                                    // SDR
+    };
+
+    Some(crate::video::YuvFrame {
+        width,
+        height,
+        y,
+        u,
+        v,
+        y_stride,
+        uv_stride,
+        chroma_width,
+        chroma_height,
+        matrix,
+        full_range,
+        transfer,
     })
 }
