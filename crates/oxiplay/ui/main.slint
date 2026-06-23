@@ -279,6 +279,26 @@ component MenuButton inherits Rectangle {
     }
 }
 
+// Une ligne de l'aide des raccourcis : touche(s) à gauche, action à droite.
+component HelpRow inherits HorizontalLayout {
+    in property <bool> dark: true;
+    in property <string> keys;
+    in property <string> action;
+    spacing: 14px;
+    Text {
+        text: root.keys;
+        color: root.dark ? #9aa3af : #5b6573;
+        width: 104px;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.action;
+        color: root.dark ? #e8eaed : #1c1e21;
+        horizontal-stretch: 1;
+        vertical-alignment: center;
+    }
+}
+
 export component MainWindow inherits Window {
     title: "OxiPlay";
     preferred-width: 1340px; // s'ouvre confortablement avec la barre du bas sur une ligne
@@ -334,6 +354,7 @@ export component MainWindow inherits Window {
     in-out property <bool> info-visible: false;
     in property <string> stats-text: "";
     in-out property <bool> stats-visible: false;
+    in-out property <bool> help-visible: false; // overlay des raccourcis (touche ?)
     in property <string> update-version: ""; // non vide = mise à jour dispo
     in-out property <bool> subs-visible: false;
     in-out property <float> img-brightness: 0.0;
@@ -427,10 +448,12 @@ export component MainWindow inherits Window {
             if (event.text == "h" || event.text == "H") { root.toggle-stats(); return accept; }
             if (event.text == ".") { root.step-frame(true); return accept; }
             if (event.text == ",") { root.step-frame(false); return accept; }
+            if (event.text == "?") { root.help-visible = !root.help-visible; return accept; }
             if (event.text == Key.RightArrow) { root.seek-relative(10); return accept; }
             if (event.text == Key.LeftArrow) { root.seek-relative(-10); return accept; }
             if (event.text == Key.UpArrow) { root.volume-changed(min(1.25, root.volume + 0.05)); return accept; }
             if (event.text == Key.DownArrow) { root.volume-changed(max(0.0, root.volume - 0.05)); return accept; }
+            if (event.text == Key.Escape && root.help-visible) { root.help-visible = false; return accept; }
             if (event.text == Key.Escape && root.fullscreen) { root.toggle-fullscreen(); return accept; }
             return reject;
         }
@@ -1093,6 +1116,50 @@ export component MainWindow inherits Window {
         }
     }
 
+    // ---- Aide des raccourcis clavier (touche ?) ----------------------------
+    if root.help-visible: TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.help-visible = false; } // clic en dehors = ferme
+        Rectangle { background: #00000099; } // fond assombri
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 380px;
+            height: help-col.preferred-height;
+            background: root.dark ? #1b1f26 : #ffffff;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: root.dark ? #3a414c : #d0d4da;
+            help-col := VerticalLayout {
+                padding: 18px;
+                spacing: 7px;
+                HorizontalLayout {
+                    Text {
+                        text: @tr("Raccourcis clavier");
+                        color: root.fg;
+                        font-size: 15px;
+                        font-weight: 700;
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                    }
+                    ToolButton { text: "✕"; dark: root.dark; clicked => { root.help-visible = false; } }
+                }
+                HelpRow { dark: root.dark; keys: "Espace"; action: @tr("Lecture / pause"); }
+                HelpRow { dark: root.dark; keys: "← / →"; action: @tr("Reculer / avancer 10 s"); }
+                HelpRow { dark: root.dark; keys: "↑ / ↓"; action: @tr("Volume + / −"); }
+                HelpRow { dark: root.dark; keys: "M"; action: @tr("Sourdine"); }
+                HelpRow { dark: root.dark; keys: "F / Échap"; action: @tr("Plein écran (Échap pour sortir)"); }
+                HelpRow { dark: root.dark; keys: "P"; action: @tr("Mini-lecteur"); }
+                HelpRow { dark: root.dark; keys: "R"; action: @tr("Répétition"); }
+                HelpRow { dark: root.dark; keys: "H"; action: @tr("Statistiques (HUD)"); }
+                HelpRow { dark: root.dark; keys: "S"; action: @tr("Capture d'écran"); }
+                HelpRow { dark: root.dark; keys: ". / ,"; action: @tr("Image suivante / précédente"); }
+                HelpRow { dark: root.dark; keys: "?"; action: @tr("Afficher cette aide"); }
+            }
+        }
+    }
+
     // ---- Menu déroulant « ⋮ » (overlay : se ferme au clic extérieur et se
     // masque en plein écran, contrairement à un PopupWindow orphelin) --------
     if MenuState.open && !root.chrome-hidden: TouchArea {
@@ -1145,6 +1212,12 @@ export component MainWindow inherits Window {
                     icon: "🌐";
                     label: root.ui-language == "en" ? "Language: English" : "Langue : Français";
                     activated => { root.cycle-language(); MenuState.open = false; }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: "❔";
+                    label: @tr("Raccourcis clavier");
+                    activated => { root.help-visible = true; MenuState.open = false; }
                 }
             }
         }

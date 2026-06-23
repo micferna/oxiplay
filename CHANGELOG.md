@@ -25,6 +25,13 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   barre de contrôles flottante réapparaît au survol du bas.
 
 ### Ajouté
+- **Favoris de chaînes** : bouton ★ par entrée de playlist (persisté par URL) et
+  filtre « favoris uniquement », combinable avec la recherche et la catégorie.
+- **Sous-titres « sidecar » automatiques** : à l'ouverture d'un fichier local, un
+  `.srt`/`.ass`/`.ssa`/`.vtt` du même nom posé à côté est chargé tout seul
+  (`film.srt`, ou `film.fr.srt` selon la langue préférée).
+- **Aide des raccourcis clavier** (touche `?` ou menu ⋮) : panneau listant tous
+  les raccourcis (lecture, navigation, volume, plein écran, mini-lecteur…).
 - **Listes IPTV** : une URL d'annuaire M3U distant (Free-TV, iptv-org…) est
   récupérée en arrière-plan et, si c'est un annuaire de chaînes (et non un flux
   HLS unique), chargée dans la playlist. Champ de **recherche** par nom +
