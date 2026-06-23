@@ -309,6 +309,12 @@ export component MainWindow inherits Window {
     icon: @image-url("icon.png");
     default-font-size: 13px;
 
+    // Taille réelle (logique) de la fenêtre, exposée à Rust pour la persistance :
+    // `window().size()` renvoie la taille *préférée*, alors que `self.width`
+    // reflète la taille effective (cf. la barre réactive).
+    out property <length> reported-width: self.width;
+    out property <length> reported-height: self.height;
+
     // ---- État exposé par Rust -------------------------------------------
     in property <bool> dark: true;
     in property <image> video-frame;

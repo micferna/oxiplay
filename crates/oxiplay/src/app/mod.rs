@@ -1023,6 +1023,16 @@ impl App {
     pub fn tick(&mut self) {
         let Some(ui) = self.ui.upgrade() else { return };
 
+        // Mémorise la géométrie courante (uniquement en mode fenêtré normal :
+        // ni mini-lecteur, ni plein écran, dont la taille n'est pas à retenir).
+        // Capturée ici plutôt qu'après `run()`, où la taille redevient périmée.
+        if !ui.get_mini() && !ui.get_fullscreen() {
+            // `reported-width/height` = taille logique réelle (cf. main.slint).
+            let w = ui.get_reported_width().round() as u32;
+            let h = ui.get_reported_height().round() as u32;
+            self.remember_window_geometry(w, h);
+        }
+
         // Commandes des contrôles média du bureau (touches multimédia, MPRIS).
         for event in self.media_keys.poll() {
             self.apply_media_event(event);
@@ -1270,6 +1280,14 @@ impl App {
     }
 
     /// À appeler avant de quitter : persiste position et paramètres.
+    /// Mémorise la géométrie de la fenêtre (sauvegardée par `shutdown`).
+    pub fn remember_window_geometry(&mut self, width: u32, height: u32) {
+        // Ignore les tailles aberrantes (fenêtre minimisée → 0, ou démesurée).
+        if (200..=16_384).contains(&width) && (150..=16_384).contains(&height) {
+            self.settings.window = Some(crate::settings::WindowGeometry { width, height });
+        }
+    }
+
     pub fn shutdown(&mut self) {
         self.stop_current(true);
         self.settings.save();

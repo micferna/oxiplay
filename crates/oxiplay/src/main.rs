@@ -60,11 +60,22 @@ fn main() -> anyhow::Result<()> {
         log::warn!("notifier de rendu indisponible : {e}");
     }
 
+    let init_settings = oxiplay::settings::Settings::load();
+
+    // Restaure la taille de la fenêtre de la session précédente (taille logique ;
+    // avant l'affichage, donc sans saut visible). La position n'est pas
+    // restaurée (gérée par le compositeur, no-op sous Wayland).
+    if let Some(g) = init_settings.window {
+        main_window
+            .window()
+            .set_size(slint::LogicalSize::new(g.width as f32, g.height as f32));
+    }
+
     // Langue de l'interface (traductions bundlées, voir build.rs). Le français
     // est la langue source : on ne sélectionne une traduction que pour les
     // autres langues. Appelé après la création de la fenêtre (contexte Slint
     // initialisé) mais avant `run()`, donc sans clignotement visible.
-    let ui_language = oxiplay::settings::Settings::load().resolve_language();
+    let ui_language = init_settings.resolve_language();
     if ui_language == "en" {
         // "" = langue source (français) ; "en" = traduction bundlée.
         if let Err(e) = slint::select_bundled_translation("en") {
@@ -96,6 +107,8 @@ fn main() -> anyhow::Result<()> {
 
     main_window.run()?;
 
+    // La géométrie de la fenêtre est capturée en continu dans `tick` ; il ne
+    // reste qu'à persister les réglages.
     app.borrow_mut().shutdown();
 
     // Avec le backend wgpu, la destruction du device Vulkan plante au teardown
