@@ -16,8 +16,21 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   `rfd::AsyncFileDialog`). L'ancien dialogue synchrone gelait l'événementiel le
   temps de la navigation, ce que GNOME signalait par « l'application ne répond
   pas / Forcer à quitter ».
+- **Zapping IPTV sans gel** : un `interrupt_callback` FFmpeg abandonne
+  immédiatement la connexion/lecture réseau bloquante au changement de chaîne,
+  au lieu d'attendre le `rw_timeout` (15 s) — ce qui gelait l'interface.
+- **Menu ⋮ et barres en plein écran** : le menu déroulant se ferme désormais au
+  clic extérieur et en plein écran (overlay piloté au lieu d'un PopupWindow
+  orphelin) ; en plein écran les barres se masquent (vue immersive) et une
+  barre de contrôles flottante réapparaît au survol du bas.
 
 ### Ajouté
+- **Listes IPTV** : une URL d'annuaire M3U distant (Free-TV, iptv-org…) est
+  récupérée en arrière-plan et, si c'est un annuaire de chaînes (et non un flux
+  HLS unique), chargée dans la playlist. Champ de **recherche** par nom +
+  **filtre par catégorie/pays** (`group-title`) dans le panneau playlist.
+- **Menu déroulant ⋮** : regroupe les options secondaires (rotation, réglages
+  image, mini-lecteur, thème, langue) pour désencombrer la barre d'outils.
 - **Interface bilingue français / anglais** (i18n) : les libellés de l'interface
   sont traduisibles via les traductions *bundlées* de Slint (gettext `.po`
   compilés dans le binaire, sans dépendance système). La langue suit
@@ -122,6 +135,10 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   le pire cas, davantage en pratique (sortie identique, vérifiée par les tests).
 - Pipeline audio refondu autour d'un graphe de filtres (égaliseur → atempo →
   conversion), reconstruit à la volée quand la vitesse ou les gains changent.
+- **Builds de release avec le rendu GPU** : tous les artefacts (AppImage, `.deb`,
+  `.tar.gz`, `.exe`, `.msi`) sont construits avec `--features gpu` (repli GL si
+  pas de Vulkan/pilote). Ajout d'un **installeur Windows `.msi`** (WiX) en plus
+  du `.zip` portable.
 
 ## [0.1.0] — 2026-06-12
 
