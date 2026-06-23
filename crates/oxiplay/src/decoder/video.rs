@@ -531,36 +531,54 @@ fn convert_frame(
     })
 }
 
-/// Extrait les plans YUV planaires 8 bits (4:2:0) d'une image décodée pour le
-/// rendu GPU. Renvoie `None` pour tout autre format (le chemin RGBA logiciel
-/// prend alors le relais) — l'Étape A ne couvre que `yuv420p`.
+/// Extrait les plans YUV 8 bits (4:2:0) d'une image décodée pour le rendu GPU,
+/// en trois plans planaires Y/U/V attendus par le shader. Gère le **planaire**
+/// `yuv420p` (décodage logiciel) et le **semi-planaire** `nv12` (sortie typique
+/// de NVDEC/VAAPI rapatriée), dé-entrelacé à la volée. Renvoie `None` pour tout
+/// autre format (10 bits/P010, etc.) → repli RGBA logiciel.
 fn extract_yuv(decoded: &ffmpeg::frame::Video) -> Option<crate::video::YuvFrame> {
     use ffmpeg::color::{Range, Space, TransferCharacteristic};
     use ffmpeg::format::Pixel;
 
-    if decoded.format() != Pixel::YUV420P {
-        return None;
-    }
     let (width, height) = (decoded.width(), decoded.height());
-    let y_stride = decoded.stride(0) as u32;
-    let uv_stride = decoded.stride(1) as u32;
     let chroma_width = width.div_ceil(2);
     let chroma_height = height.div_ceil(2);
+    let y_stride = decoded.stride(0) as u32;
 
-    // `.get(..len)?` plutôt qu'un indexage : aucune panique si un plan annoncé
-    // est plus court que prévu (fichier malformé).
+    // Plan Y (pleine résolution), commun aux deux formats. `.get(..len)?` plutôt
+    // qu'un indexage : aucune panique si un plan annoncé est trop court.
     let y = decoded
         .data(0)
         .get(..y_stride as usize * height as usize)?
         .to_vec();
-    let u = decoded
-        .data(1)
-        .get(..uv_stride as usize * chroma_height as usize)?
-        .to_vec();
-    let v = decoded
-        .data(2)
-        .get(..uv_stride as usize * chroma_height as usize)?
-        .to_vec();
+
+    // Plans chroma : déjà planaires (yuv420p) ou entrelacés U/V (nv12).
+    let (u, v, uv_stride) = match decoded.format() {
+        Pixel::YUV420P => {
+            let stride = decoded.stride(1);
+            let len = stride * chroma_height as usize;
+            let u = decoded.data(1).get(..len)?.to_vec();
+            let v = decoded.data(2).get(..len)?.to_vec();
+            (u, v, stride as u32)
+        }
+        Pixel::NV12 => {
+            // Plan UV entrelacé (U,V,U,V…) → deux plans compacts.
+            let stride = decoded.stride(1);
+            let (cw, ch) = (chroma_width as usize, chroma_height as usize);
+            let uv = decoded.data(1);
+            let mut u = Vec::with_capacity(cw * ch);
+            let mut v = Vec::with_capacity(cw * ch);
+            for row in 0..ch {
+                let line = uv.get(row * stride..row * stride + cw * 2)?;
+                for px in line.chunks_exact(2) {
+                    u.push(px[0]);
+                    v.push(px[1]);
+                }
+            }
+            (u, v, chroma_width)
+        }
+        _ => return None,
+    };
 
     let matrix = match decoded.color_space() {
         Space::BT709 => 1,
