@@ -241,6 +241,20 @@ impl App {
         engine.set_audio_delay(self.audio_delay_secs);
         engine.set_equalizer(self.settings.equalizer_gains);
 
+        // Sous-titres « sidecar » : un .srt/.ass portant le même nom que le
+        // média (éventuellement suffixé par la langue préférée) est chargé
+        // automatiquement comme piste externe.
+        if let Some(path) = find_sidecar_subtitle(source, &self.settings.subtitle_language) {
+            match crate::subtitles::load_file(&path) {
+                Ok(track) => {
+                    let n = track.len();
+                    *engine.shared.external_subtitles.lock().unwrap() = Some(track);
+                    log::info!("sous-titres sidecar : {} ({n} répliques)", path.display());
+                }
+                Err(e) => log::debug!("sidecar illisible ({}) : {e}", path.display()),
+            }
+        }
+
         self.engine = Some(engine);
         self.current_source = Some(source.to_string());
         self.settings.push_history(source);
@@ -1262,6 +1276,48 @@ impl App {
     }
 }
 
+/// Cherche un fichier de sous-titres « sidecar » à côté d'un média **local** :
+/// `<nom>.<ext>` ou `<nom>.<langue>.<ext>` (ext dans [`SUBTITLE_EXTENSIONS`]).
+/// Priorité : langue préférée > nom exact > toute autre langue. Renvoie `None`
+/// pour les URL/flux ou si rien n'est trouvé.
+fn find_sidecar_subtitle(source: &str, prefer_lang: &str) -> Option<std::path::PathBuf> {
+    let path = std::path::Path::new(source);
+    if !path.is_file() {
+        return None; // fichiers locaux uniquement (pas d'URL, flux, bluray:)
+    }
+    let dir = path.parent()?;
+    let stem = path.file_stem()?.to_str()?;
+    let lang_prefix = format!("{stem}.");
+
+    let mut exact = None; // <nom>.<ext>
+    let mut lang_match = None; // <nom>.<langue préférée>.<ext>
+    let mut any_lang = None; // <nom>.<autre langue>.<ext>
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let p = entry.path();
+        let is_sub = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .is_some_and(|e| SUBTITLE_EXTENSIONS.contains(&e.as_str()));
+        if !is_sub {
+            continue;
+        }
+        let Some(name_stem) = p.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if name_stem == stem {
+            exact = Some(p);
+        } else if let Some(lang) = name_stem.strip_prefix(&lang_prefix) {
+            if lang.eq_ignore_ascii_case(prefer_lang) {
+                lang_match = Some(p);
+            } else if any_lang.is_none() {
+                any_lang = Some(p);
+            }
+        }
+    }
+    lang_match.or(exact).or(any_lang)
+}
+
 /// Convertit une liste de chaînes en modèle Slint.
 fn string_model(items: Vec<String>) -> ModelRc<SharedString> {
     ModelRc::from(Rc::new(VecModel::from(
@@ -1307,4 +1363,31 @@ fn slint_color(rgb: u32) -> slint::Color {
 
 fn format_delay(secs: f64) -> SharedString {
     format!("{secs:+.1} s").into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_sidecar_subtitle;
+
+    #[test]
+    fn sidecar_priority_and_matching() {
+        let dir = std::env::temp_dir().join("oxiplay-sidecar-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let media = dir.join("film.mkv");
+        std::fs::write(&media, b"x").unwrap();
+        std::fs::write(dir.join("film.srt"), b"").unwrap();
+        std::fs::write(dir.join("film.en.srt"), b"").unwrap();
+        std::fs::write(dir.join("film.fr.ass"), b"").unwrap();
+
+        // Langue préférée « fr » → film.fr.ass l'emporte sur l'exact.
+        let got = find_sidecar_subtitle(media.to_str().unwrap(), "fr").unwrap();
+        assert_eq!(got.file_name().unwrap(), "film.fr.ass");
+        // Langue absente (« de ») → repli sur le nom exact film.srt.
+        let got = find_sidecar_subtitle(media.to_str().unwrap(), "de").unwrap();
+        assert_eq!(got.file_name().unwrap(), "film.srt");
+        // Une URL n'a pas de sidecar.
+        assert!(find_sidecar_subtitle("https://ex.com/live.m3u8", "fr").is_none());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
