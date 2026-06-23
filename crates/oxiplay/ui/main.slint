@@ -210,6 +210,120 @@ component SecondaryControls inherits HorizontalLayout {
     ToolButton { text: "+"; tip: @tr("Audio plus tard"); dark: root.dark; width: 24px; clicked => { root.audio-delay-adjust(0.1); } }
 }
 
+// Une ligne du menu « ⋮ » : icône + libellé, surlignée au survol.
+component MenuRow inherits Rectangle {
+    in property <bool> dark: true;
+    in property <bool> active: false;
+    in property <string> icon;
+    in property <string> label;
+    callback activated();
+
+    height: 32px;
+    border-radius: 5px;
+    background: touch.has-hover
+        ? (root.dark ? #2c333d : #e8ebef)
+        : (root.active ? (root.dark ? #39414d : #ccd2da) : transparent);
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 14px;
+        spacing: 9px;
+        Text {
+            text: root.icon;
+            font-size: 14px;
+            width: 18px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            color: root.dark ? #e8eaed : #1c1e21;
+        }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            color: root.dark ? #e8eaed : #1c1e21;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.activated(); }
+    }
+}
+
+// Bouton « ⋮ » regroupant les options secondaires (rotation, image,
+// mini-lecteur, thème, langue) dans un menu déroulant, pour désencombrer la
+// barre d'outils. Le menu se ferme à tout clic (`close-on-click`).
+component MenuButton inherits Rectangle {
+    in property <bool> dark: true;
+    in property <bool> image-active: false;
+    in property <string> language: "fr";
+    callback rotate();
+    callback toggle-image();
+    callback toggle-mini();
+    callback toggle-theme();
+    callback cycle-language();
+
+    width: 36px;
+    height: 32px;
+
+    ToolButton {
+        text: "⋮";
+        tip: @tr("Plus d'options");
+        dark: root.dark;
+        clicked => {
+            menu.show();
+        }
+    }
+
+    menu := PopupWindow {
+        x: root.width - 214px; // aligne le bord droit du menu sur le bouton
+        y: root.height + 4px;
+        width: 214px;
+        height: col.preferred-height;
+        close-policy: close-on-click;
+
+        Rectangle {
+            background: root.dark ? #1b1f26 : #ffffff;
+            border-color: root.dark ? #3a414c : #d0d4da;
+            border-width: 1px;
+            border-radius: 8px;
+            col := VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                MenuRow {
+                    dark: root.dark;
+                    icon: "⟳";
+                    label: @tr("Rotation 90°");
+                    activated => { root.rotate(); }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: "🎨";
+                    label: @tr("Réglages image");
+                    active: root.image-active;
+                    activated => { root.toggle-image(); }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: "🗗";
+                    label: @tr("Mini-lecteur");
+                    activated => { root.toggle-mini(); }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: root.dark ? "☀" : "🌙";
+                    label: @tr("Thème clair / sombre");
+                    activated => { root.toggle-theme(); }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: "🌐";
+                    label: root.language == "en" ? "Language: English" : "Langue : Français";
+                    activated => { root.cycle-language(); }
+                }
+            }
+        }
+    }
+}
+
 export component MainWindow inherits Window {
     title: "OxiPlay";
     preferred-width: 1340px; // s'ouvre confortablement avec la barre du bas sur une ligne
@@ -403,11 +517,16 @@ export component MainWindow inherits Window {
                         active: root.info-visible;
                         clicked => { root.info-visible = !root.info-visible; }
                     }
-                    ToolButton { text: "⟳"; tip: @tr("Rotation 90°"); dark: root.dark; clicked => { root.cycle-rotation(); } }
-                    ToolButton { text: "🎨"; tip: @tr("Réglages image"); dark: root.dark; active: root.image-visible; clicked => { root.image-visible = !root.image-visible; } }
-                    ToolButton { text: "🗗"; tip: @tr("Mini-lecteur"); dark: root.dark; clicked => { root.toggle-mini(); } }
-                    ToolButton { text: root.dark ? "☀" : "🌙"; dark: root.dark; clicked => { root.toggle-theme(); } }
-                    ToolButton { text: root.ui-language == "en" ? "EN" : "FR"; tip: @tr("Langue / Language"); dark: root.dark; clicked => { root.cycle-language(); } }
+                    MenuButton {
+                        dark: root.dark;
+                        image-active: root.image-visible;
+                        language: root.ui-language;
+                        rotate => { root.cycle-rotation(); }
+                        toggle-image => { root.image-visible = !root.image-visible; }
+                        toggle-mini => { root.toggle-mini(); }
+                        toggle-theme => { root.toggle-theme(); }
+                        cycle-language => { root.cycle-language(); }
+                    }
                     ToolButton {
                         text: "☰";
                         dark: root.dark;
