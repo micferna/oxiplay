@@ -354,6 +354,8 @@ export component MainWindow inherits Window {
     in property <string> status-text: "";
     in property <string> media-title: "";
     in property <[PlaylistEntry]> playlist-entries: [];
+    in property <[string]> playlist-groups: []; // catégories pour le filtre IPTV
+    in-out property <string> playlist-search;
     in property <[string]> audio-tracks: [];
     in property <[string]> subtitle-tracks: [];
     in property <[string]> audio-devices: [];
@@ -406,6 +408,8 @@ export component MainWindow inherits Window {
     callback playlist-shift(int, int);
     callback playlist-save();
     callback playlist-load();
+    callback playlist-search-changed(string);
+    callback playlist-group-selected(int);
     callback audio-track-selected(int);
     callback subtitle-track-selected(int);
     callback audio-device-selected(int);
@@ -861,6 +865,19 @@ export component MainWindow inherits Window {
                             color: root.fg;
                             font-size: 14px;
                             font-weight: 700;
+                        }
+
+                        // Recherche par nom (utile pour les annuaires IPTV).
+                        LineEdit {
+                            placeholder-text: @tr("Rechercher une chaîne…");
+                            text <=> root.playlist-search;
+                            edited => { root.playlist-search-changed(self.text); }
+                        }
+                        // Filtre par catégorie / pays, dès qu'il y en a plusieurs.
+                        if root.playlist-groups.length > 1: ComboBox {
+                            model: root.playlist-groups;
+                            current-index: 0;
+                            selected => { root.playlist-group-selected(self.current-index); }
                         }
 
                         ListView {

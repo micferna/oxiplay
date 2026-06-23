@@ -11,14 +11,30 @@ pub struct PlaylistItem {
     pub source: String,
     /// Titre affiché (nom de fichier par défaut, ou #EXTINF).
     pub title: String,
+    /// Catégorie / pays (attribut `group-title` M3U), vide si absent. Sert au
+    /// filtrage des gros annuaires IPTV.
+    pub group: String,
 }
 
 impl PlaylistItem {
     pub fn new(source: impl Into<String>) -> Self {
         let source = source.into();
         let title = crate::utils::display_name(&source);
-        Self { source, title }
+        Self {
+            source,
+            title,
+            group: String::new(),
+        }
     }
+}
+
+/// Extrait la valeur d'un attribut `clé="valeur"` d'une ligne `#EXTINF`.
+fn extract_attr(line: &str, key: &str) -> Option<String> {
+    let needle = format!("{key}=\"");
+    let start = line.find(&needle)? + needle.len();
+    let rest = &line[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
 }
 
 /// Mode de répétition de la lecture, cyclé par l'utilisateur.
@@ -159,7 +175,14 @@ impl Playlist {
     pub fn save_m3u(&self, path: &Path) -> Result<()> {
         let mut out = String::from("#EXTM3U\n");
         for item in &self.items {
-            out.push_str(&format!("#EXTINF:-1,{}\n{}\n", item.title, item.source));
+            if item.group.is_empty() {
+                out.push_str(&format!("#EXTINF:-1,{}\n{}\n", item.title, item.source));
+            } else {
+                out.push_str(&format!(
+                    "#EXTINF:-1 group-title=\"{}\",{}\n{}\n",
+                    item.group, item.title, item.source
+                ));
+            }
         }
         std::fs::write(path, out)
             .with_context(|| format!("écriture de la playlist {}", path.display()))
@@ -169,36 +192,49 @@ impl Playlist {
     pub fn load_m3u(&mut self, path: &Path) -> Result<usize> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("lecture de la playlist {}", path.display()))?;
-        let base = path.parent();
         self.clear();
-        let mut pending_title: Option<String> = None;
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            if let Some(info) = line.strip_prefix("#EXTINF:") {
-                pending_title = info.split_once(',').map(|(_, t)| t.trim().to_string());
-            } else if line.starts_with('#') {
-                continue;
-            } else {
-                // Résout les chemins relatifs par rapport au fichier M3U.
-                let source = if crate::streaming::is_url(line) || Path::new(line).is_absolute() {
-                    line.to_string()
-                } else if let Some(base) = base {
-                    base.join(line).to_string_lossy().into_owned()
-                } else {
-                    line.to_string()
-                };
-                let mut item = PlaylistItem::new(source);
-                if let Some(t) = pending_title.take().filter(|t| !t.is_empty()) {
-                    item.title = t;
-                }
-                self.items.push(item);
-            }
-        }
+        self.items = parse_m3u_content(&text, path.parent());
         Ok(self.items.len())
     }
+}
+
+/// Parse le contenu d'une playlist M3U/M3U8 en entrées (titre `#EXTINF` +
+/// source). `base` résout les chemins relatifs d'un fichier local ; passer
+/// `None` pour un contenu distant (annuaire IPTV récupéré par le réseau).
+pub fn parse_m3u_content(text: &str, base: Option<&Path>) -> Vec<PlaylistItem> {
+    let mut items = Vec::new();
+    let mut pending_title: Option<String> = None;
+    let mut pending_group: Option<String> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(info) = line.strip_prefix("#EXTINF:") {
+            pending_title = info.split_once(',').map(|(_, t)| t.trim().to_string());
+            pending_group = extract_attr(info, "group-title");
+        } else if line.starts_with('#') {
+            continue;
+        } else {
+            // Résout les chemins relatifs par rapport au fichier M3U.
+            let source = if crate::streaming::is_url(line) || Path::new(line).is_absolute() {
+                line.to_string()
+            } else if let Some(base) = base {
+                base.join(line).to_string_lossy().into_owned()
+            } else {
+                line.to_string()
+            };
+            let mut item = PlaylistItem::new(source);
+            if let Some(t) = pending_title.take().filter(|t| !t.is_empty()) {
+                item.title = t;
+            }
+            if let Some(g) = pending_group.take().filter(|g| !g.is_empty()) {
+                item.group = g;
+            }
+            items.push(item);
+        }
+    }
+    items
 }
 
 #[cfg(test)]
@@ -272,5 +308,17 @@ mod tests {
         assert_eq!(loaded.items()[3].source, "https://ex.com/live.m3u8");
         assert_eq!(loaded.items()[0].title, "a.mp4");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_remote_channel_directory() {
+        // Annuaire IPTV distant : titres `#EXTINF` + URLs absolues, base `None`.
+        let content = "#EXTM3U\n#EXTINF:-1 tvg-id=\"a\",Chaîne A\nhttps://ex.com/a.m3u8\n\
+                       #EXTINF:-1,Chaîne B\nhttps://ex.com/b.m3u8\n";
+        let items = parse_m3u_content(content, None);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].title, "Chaîne A");
+        assert_eq!(items[0].source, "https://ex.com/a.m3u8");
+        assert_eq!(items[1].title, "Chaîne B");
     }
 }

@@ -40,6 +40,49 @@ struct DemuxState {
 }
 
 /// Point d'entrée du thread de demuxage.
+/// Callback d'interruption d'I/O FFmpeg : renvoie 1 (abandon) dès qu'un arrêt
+/// est demandé. Sans cela, ouvrir ou lire un flux réseau bloque jusqu'au
+/// `rw_timeout` (15 s), ce qui gèle l'UI quand on change de chaîne (le `Drop`
+/// de l'engine joint les threads bloqués en lecture).
+unsafe extern "C" fn interrupt_cb(opaque: *mut std::ffi::c_void) -> std::os::raw::c_int {
+    if opaque.is_null() {
+        return 0;
+    }
+    // SAFETY : `opaque` pointe vers le `SharedState` de la session, maintenu en
+    // vie tant que le contexte de demuxage (et donc ce callback) existe.
+    let shared = unsafe { &*(opaque as *const SharedState) };
+    i32::from(shared.should_stop())
+}
+
+/// Ouvre une source avec les options réseau **et** un `interrupt_callback` posé
+/// *avant* l'ouverture — de sorte que la connexion comme la lecture puissent
+/// être abandonnées immédiatement sur demande d'arrêt (zapping IPTV réactif).
+fn open_input_interruptible(
+    source: &str,
+    options: ffmpeg::Dictionary,
+    shared: &Arc<SharedState>,
+) -> anyhow::Result<ffmpeg::format::context::Input> {
+    use ffmpeg::ffi;
+    unsafe {
+        let mut ps = ffi::avformat_alloc_context();
+        anyhow::ensure!(!ps.is_null(), "allocation du contexte de format échouée");
+        (*ps).interrupt_callback.callback = Some(interrupt_cb);
+        (*ps).interrupt_callback.opaque = Arc::as_ptr(shared) as *mut std::ffi::c_void;
+
+        let path = std::ffi::CString::new(source)?;
+        let mut dict = options.into_raw();
+        let res = ffi::avformat_open_input(&mut ps, path.as_ptr(), std::ptr::null_mut(), &mut dict);
+        ffi::av_dict_free(&mut dict);
+        anyhow::ensure!(res >= 0, "ouverture de la source échouée ({res})");
+
+        if ffi::avformat_find_stream_info(ps, std::ptr::null_mut()) < 0 {
+            ffi::avformat_close_input(&mut ps);
+            anyhow::bail!("analyse du flux échouée");
+        }
+        Ok(ffmpeg::format::context::Input::wrap(ps))
+    }
+}
+
 pub fn run_demux(
     config: DemuxConfig,
     shared: Arc<SharedState>,
@@ -76,7 +119,7 @@ fn demux_loop(
     };
     let kind = crate::streaming::classify(&source);
     let options = crate::streaming::demux_options(kind);
-    let mut ictx = ffmpeg::format::input_with_dictionary(std::path::Path::new(&source), options)?;
+    let mut ictx = open_input_interruptible(&source, options, shared)?;
 
     let duration_us = if ictx.duration() > 0 {
         // `Input::duration` est en unités AV_TIME_BASE (µs).
