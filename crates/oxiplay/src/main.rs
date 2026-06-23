@@ -28,11 +28,13 @@ fn main() -> anyhow::Result<()> {
     // autres langues. Appelé après la création de la fenêtre (contexte Slint
     // initialisé) mais avant `run()`, donc sans clignotement visible.
     let ui_language = oxiplay::settings::Settings::load().resolve_language();
-    if ui_language != "fr" {
-        if let Err(e) = slint::select_bundled_translation(ui_language) {
-            log::debug!("traduction « {ui_language} » indisponible : {e}");
+    if ui_language == "en" {
+        // "" = langue source (français) ; "en" = traduction bundlée.
+        if let Err(e) = slint::select_bundled_translation("en") {
+            log::debug!("traduction anglaise indisponible : {e}");
         }
     }
+    main_window.set_ui_language(ui_language.into());
 
     let app = Rc::new(RefCell::new(App::new(main_window.as_weak())));
 
@@ -114,6 +116,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_set_subtitle_color, |a, code: i32| a
         .set_subtitle_color(code));
     on!(on_toggle_theme, |a| a.toggle_theme());
+    on!(on_cycle_language, |a| a.cycle_language());
     on!(on_open_update, |a| a.open_update());
     on!(on_eq_band_changed, |a, band: i32, gain: f32| a
         .set_equalizer_band(band, gain));

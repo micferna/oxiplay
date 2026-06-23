@@ -11,6 +11,14 @@ export struct PlaylistEntry {
 }
 
 // Bouton compact à base de texte (icônes unicode).
+// État partagé de l'info-bulle courante (publié par le bouton survolé,
+// rendu par un overlay au niveau de la fenêtre, au-dessus de tout le reste).
+global TooltipState {
+    in-out property <string> text;
+    in-out property <length> anchor-x; // centre horizontal du bouton (coord. fenêtre)
+    in-out property <length> anchor-y; // bas du bouton (coord. fenêtre)
+}
+
 component ToolButton inherits Rectangle {
     in property <string> text;
     in property <string> tip;
@@ -24,6 +32,18 @@ component ToolButton inherits Rectangle {
     background: touch.has-hover
         ? (root.dark ? #2c333d : #d8dce2)
         : (root.active ? (root.dark ? #39414d : #ccd2da) : transparent);
+
+    // Publie / retire l'info-bulle selon le survol.
+    property <bool> hovered: touch.has-hover;
+    changed hovered => {
+        if (root.hovered && root.tip != "") {
+            TooltipState.text = root.tip;
+            TooltipState.anchor-x = root.absolute-position.x + root.width / 2;
+            TooltipState.anchor-y = root.absolute-position.y + root.height;
+        } else if (TooltipState.text == root.tip) {
+            TooltipState.text = "";
+        }
+    }
 
     Text {
         text: root.text;
@@ -138,11 +158,63 @@ component EqBand inherits VerticalLayout {
     }
 }
 
+// Contrôles secondaires (vitesse, pistes audio/sous-titres, décalages A/V).
+// Affichés en ligne quand la fenêtre est large, ou sur une 2e rangée en mode
+// `compact` (libellés texte masqués) quand elle est étroite — un seul markup.
+component SecondaryControls inherits HorizontalLayout {
+    in property <bool> dark: true;
+    in property <bool> compact: false;
+    in property <[string]> audio-tracks;
+    in property <[string]> subtitle-tracks;
+    in-out property <int> speed-index;
+    in-out property <int> audio-track-index;
+    in-out property <int> subtitle-track-index;
+    in property <string> sub-delay-text;
+    in property <string> audio-delay-text;
+    callback speed-selected(int);
+    callback audio-track-selected(int);
+    callback subtitle-track-selected(int);
+    callback sub-delay-adjust(float);
+    callback audio-delay-adjust(float);
+
+    property <color> fg-dim: root.dark ? #9aa3af : #5b6573;
+    spacing: 6px;
+
+    if !root.compact: Text { text: @tr("Vitesse"); color: root.fg-dim; vertical-alignment: center; }
+    ComboBox {
+        width: 92px;
+        model: ["0.25×", "0.50×", "0.75×", "1.00×", "1.25×", "1.50×", "2.00×", "3.00×", "4.00×"];
+        current-index <=> root.speed-index;
+        selected => { root.speed-selected(self.current-index); }
+    }
+    if !root.compact: Text { text: @tr("Audio"); color: root.fg-dim; vertical-alignment: center; }
+    ComboBox {
+        width: 130px;
+        model: root.audio-tracks;
+        current-index <=> root.audio-track-index;
+        selected => { root.audio-track-selected(self.current-index); }
+    }
+    if !root.compact: Text { text: @tr("ST"); color: root.fg-dim; vertical-alignment: center; }
+    ComboBox {
+        width: 130px;
+        model: root.subtitle-tracks;
+        current-index <=> root.subtitle-track-index;
+        selected => { root.subtitle-track-selected(self.current-index); }
+    }
+    ToolButton { text: "−"; tip: @tr("ST plus tôt"); dark: root.dark; width: 24px; clicked => { root.sub-delay-adjust(-0.5); } }
+    Text { text: root.sub-delay-text; color: root.fg-dim; vertical-alignment: center; }
+    ToolButton { text: "+"; tip: @tr("ST plus tard"); dark: root.dark; width: 24px; clicked => { root.sub-delay-adjust(0.5); } }
+    Text { text: @tr("A/V"); color: root.fg-dim; vertical-alignment: center; }
+    ToolButton { text: "−"; tip: @tr("Audio plus tôt"); dark: root.dark; width: 24px; clicked => { root.audio-delay-adjust(-0.1); } }
+    Text { text: root.audio-delay-text; color: root.fg-dim; vertical-alignment: center; }
+    ToolButton { text: "+"; tip: @tr("Audio plus tard"); dark: root.dark; width: 24px; clicked => { root.audio-delay-adjust(0.1); } }
+}
+
 export component MainWindow inherits Window {
     title: "OxiPlay";
-    preferred-width: 1180px;
+    preferred-width: 1340px; // s'ouvre confortablement avec la barre du bas sur une ligne
     preferred-height: 720px;
-    min-width: 640px;
+    min-width: 720px; // sous ce seuil la barre d'outils du haut serait tronquée
     min-height: 420px;
     background: root.dark ? #14171c : #f3f4f6;
     icon: @image-url("icon.png");
@@ -229,6 +301,7 @@ export component MainWindow inherits Window {
     callback subtitle-scale-adjust(float);
     callback set-subtitle-color(int); // 0xRRGGBB, ou < 0 = style d'origine
     callback toggle-theme();
+    callback cycle-language(); // bascule FR ↔ EN
     callback open-update();
     callback eq-band-changed(int, float); // bande, gain dB
     callback eq-reset();
@@ -240,8 +313,21 @@ export component MainWindow inherits Window {
     callback chapter-selected(int);
     callback step-frame(bool);            // true = avant, false = arrière
 
+    // Langue d'interface effective (« fr » ou « en »), affichée sur le bouton.
+    in property <string> ui-language: "fr";
+
     // Chrome (barres, playlist) masqué en plein écran ou en mini-lecteur.
     property <bool> chrome-hidden: root.fullscreen || root.mini;
+
+    // Réactivité : sous ce seuil, les contrôles secondaires passent sur une 2e
+    // rangée (rien n'est masqué). Recalculé impérativement (pas une liaison)
+    // pour éviter une boucle avec la largeur minimale de la fenêtre.
+    property <bool> two-row: false;
+    changed width => {
+        // Une rangée unique (transport + secondaires + volume) tient à partir
+        // de ~1300 px ; en dessous, les secondaires passent sur une 2e rangée.
+        self.two-row = self.width < 1300px;
+    }
 
     property <color> fg: root.dark ? #e8eaed : #1c1e21;
     property <color> fg-dim: root.dark ? #9aa3af : #5b6573;
@@ -283,7 +369,7 @@ export component MainWindow inherits Window {
                     spacing: 6px;
 
                     ToolButton { text: "📂"; dark: root.dark; clicked => { root.open-files(); } }
-                    ToolButton { text: "📀"; tip: "Blu-ray (BDMV)"; dark: root.dark; clicked => { root.open-bluray(); } }
+                    ToolButton { text: "📀"; tip: @tr("Blu-ray (BDMV)"); dark: root.dark; clicked => { root.open-bluray(); } }
                     if root.recent-files.length > 0: ComboBox {
                         width: 132px;
                         model: root.recent-files;
@@ -301,8 +387,8 @@ export component MainWindow inherits Window {
                     }
                     ToolButton { text: "📡"; dark: root.dark; clicked => { root.open-url(url-input.text); url-input.text = ""; } }
                     ToolButton { text: "💬"; dark: root.dark; clicked => { root.load-subtitle-file(); } }
-                    ToolButton { text: "🔍"; tip: "Sous-titres en ligne (OpenSubtitles)"; dark: root.dark; clicked => { root.search-online-subs(); } }
-                    ToolButton { text: "Aa"; tip: "Style sous-titres"; dark: root.dark; active: root.subs-visible; clicked => { root.subs-visible = !root.subs-visible; } }
+                    ToolButton { text: "🔍"; tip: @tr("Sous-titres en ligne (OpenSubtitles)"); dark: root.dark; clicked => { root.search-online-subs(); } }
+                    ToolButton { text: "Aa"; tip: @tr("Style sous-titres"); dark: root.dark; active: root.subs-visible; clicked => { root.subs-visible = !root.subs-visible; } }
                     ToolButton { text: "📷"; dark: root.dark; clicked => { root.take-screenshot(); } }
                     ToolButton {
                         text: "🎛";
@@ -312,15 +398,16 @@ export component MainWindow inherits Window {
                     }
                     ToolButton {
                         text: "ℹ";
-                        tip: "Infos média";
+                        tip: @tr("Infos média");
                         dark: root.dark;
                         active: root.info-visible;
                         clicked => { root.info-visible = !root.info-visible; }
                     }
-                    ToolButton { text: "⟳"; tip: "Rotation 90°"; dark: root.dark; clicked => { root.cycle-rotation(); } }
-                    ToolButton { text: "🎨"; tip: "Réglages image"; dark: root.dark; active: root.image-visible; clicked => { root.image-visible = !root.image-visible; } }
-                    ToolButton { text: "🗗"; tip: "Mini-lecteur"; dark: root.dark; clicked => { root.toggle-mini(); } }
+                    ToolButton { text: "⟳"; tip: @tr("Rotation 90°"); dark: root.dark; clicked => { root.cycle-rotation(); } }
+                    ToolButton { text: "🎨"; tip: @tr("Réglages image"); dark: root.dark; active: root.image-visible; clicked => { root.image-visible = !root.image-visible; } }
+                    ToolButton { text: "🗗"; tip: @tr("Mini-lecteur"); dark: root.dark; clicked => { root.toggle-mini(); } }
                     ToolButton { text: root.dark ? "☀" : "🌙"; dark: root.dark; clicked => { root.toggle-theme(); } }
+                    ToolButton { text: root.ui-language == "en" ? "EN" : "FR"; tip: @tr("Langue / Language"); dark: root.dark; clicked => { root.cycle-language(); } }
                     ToolButton {
                         text: "☰";
                         dark: root.dark;
@@ -329,7 +416,7 @@ export component MainWindow inherits Window {
                     }
                     if root.update-version != "": ToolButton {
                         text: "⬆ v" + root.update-version;
-                        tip: "Mise à jour disponible — ouvrir la page";
+                        tip: @tr("Mise à jour disponible — ouvrir la page");
                         dark: root.dark;
                         active: true;
                         width: 96px;
@@ -427,7 +514,7 @@ export component MainWindow inherits Window {
                                     vertical-alignment: center;
                                     horizontal-stretch: 1;
                                 }
-                                ToolButton { text: "⟲"; tip: "À plat"; dark: root.dark; clicked => { root.eq-reset(); } }
+                                ToolButton { text: "⟲"; tip: @tr("À plat"); dark: root.dark; clicked => { root.eq-reset(); } }
                                 ToolButton { text: "✕"; dark: root.dark; clicked => { root.eq-visible = false; } }
                             }
                             ComboBox {
@@ -553,7 +640,7 @@ export component MainWindow inherits Window {
                                     width: 26px; height: 26px; border-radius: 5px; background: #00ff00;
                                     TouchArea { clicked => { root.set-subtitle-color(65280); } }
                                 }
-                                ToolButton { text: "ASS"; tip: "Style d'origine"; dark: root.dark; clicked => { root.set-subtitle-color(-1); } }
+                                ToolButton { text: "ASS"; tip: @tr("Style d'origine"); dark: root.dark; clicked => { root.set-subtitle-color(-1); } }
                             }
                         }
                     }
@@ -582,7 +669,7 @@ export component MainWindow inherits Window {
                                 }
                                 ToolButton {
                                     text: "⟲";
-                                    tip: "Réinitialiser";
+                                    tip: @tr("Réinitialiser");
                                     dark: root.dark;
                                     clicked => {
                                         root.img-brightness = 0;
@@ -635,7 +722,7 @@ export component MainWindow inherits Window {
                                 ToolButton { text: "⏮"; dark: true; clicked => { root.previous-item(); } }
                                 ToolButton { text: root.playing ? "⏸" : "▶"; dark: true; clicked => { root.play-pause(); } }
                                 ToolButton { text: "⏭"; dark: true; clicked => { root.next-item(); } }
-                                ToolButton { text: "🗖"; tip: "Quitter le mini-lecteur"; dark: true; clicked => { root.toggle-mini(); } }
+                                ToolButton { text: "🗖"; tip: @tr("Quitter le mini-lecteur"); dark: true; clicked => { root.toggle-mini(); } }
                             }
                         }
                     }
@@ -729,100 +816,131 @@ export component MainWindow inherits Window {
             }
 
             // ---- Contrôles ------------------------------------------------
+            // Transport + volume + plein écran restent toujours sur la 1re rangée ;
+            // les contrôles secondaires sont en ligne (large) ou sur une 2e rangée
+            // (étroit, `two-row`). Rien n'est jamais masqué.
             if !root.mini: Rectangle {
-                height: 52px;
+                height: root.two-row ? 92px : 52px;
                 background: root.panel;
 
-                HorizontalLayout {
+                VerticalLayout {
                     padding-left: 10px;
                     padding-right: 10px;
                     padding-top: 8px;
                     padding-bottom: 8px;
-                    spacing: 6px;
+                    spacing: 4px;
 
-                    ToolButton { text: "⏮"; tip: "Précédent"; dark: root.dark; clicked => { root.previous-item(); } }
-                    ToolButton { text: "⏪"; tip: "-10 s"; dark: root.dark; clicked => { root.seek-relative(-10); } }
-                    ToolButton {
-                        text: root.playing ? "⏸" : "▶";
-                        dark: root.dark;
-                        width: 44px;
-                        clicked => { root.play-pause(); }
-                    }
-                    ToolButton { text: "⏹"; tip: "Stop"; dark: root.dark; clicked => { root.stop-playback(); } }
-                    ToolButton { text: "⏩"; tip: "+10 s"; dark: root.dark; clicked => { root.seek-relative(10); } }
-                    ToolButton { text: "⏭"; tip: "Suivant"; dark: root.dark; clicked => { root.next-item(); } }
-                    ToolButton {
-                        text: root.repeat-mode == 2 ? "🔂" : "🔁";
-                        tip: "Répétition (R)";
-                        dark: root.dark;
-                        active: root.repeat-mode != 0;
-                        clicked => { root.cycle-repeat(); }
+                    // Rangée 1 : transport (+ secondaires si large) + volume + plein écran.
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        ToolButton { text: "⏮"; tip: @tr("Précédent"); dark: root.dark; clicked => { root.previous-item(); } }
+                        ToolButton { text: "⏪"; tip: @tr("-10 s"); dark: root.dark; clicked => { root.seek-relative(-10); } }
+                        ToolButton {
+                            text: root.playing ? "⏸" : "▶";
+                            dark: root.dark;
+                            width: 44px;
+                            clicked => { root.play-pause(); }
+                        }
+                        ToolButton { text: "⏹"; tip: @tr("Stop"); dark: root.dark; clicked => { root.stop-playback(); } }
+                        ToolButton { text: "⏩"; tip: @tr("+10 s"); dark: root.dark; clicked => { root.seek-relative(10); } }
+                        ToolButton { text: "⏭"; tip: @tr("Suivant"); dark: root.dark; clicked => { root.next-item(); } }
+                        ToolButton {
+                            text: root.repeat-mode == 2 ? "🔂" : "🔁";
+                            tip: @tr("Répétition (R)");
+                            dark: root.dark;
+                            active: root.repeat-mode != 0;
+                            clicked => { root.cycle-repeat(); }
+                        }
+
+                        if !root.two-row: Rectangle { width: 10px; }
+                        if !root.two-row: SecondaryControls {
+                            dark: root.dark;
+                            audio-tracks: root.audio-tracks;
+                            subtitle-tracks: root.subtitle-tracks;
+                            speed-index <=> root.speed-index;
+                            audio-track-index <=> root.audio-track-index;
+                            subtitle-track-index <=> root.subtitle-track-index;
+                            sub-delay-text: root.sub-delay-text;
+                            audio-delay-text: root.audio-delay-text;
+                            speed-selected(i) => { root.speed-selected(i); }
+                            audio-track-selected(i) => { root.audio-track-selected(i); }
+                            subtitle-track-selected(i) => { root.subtitle-track-selected(i); }
+                            sub-delay-adjust(d) => { root.sub-delay-adjust(d); }
+                            audio-delay-adjust(d) => { root.audio-delay-adjust(d); }
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        if !root.two-row: Text {
+                            text: root.status-text;
+                            color: root.fg-dim;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            max-width: 260px;
+                        }
+                        if root.audio-devices.length > 1: ComboBox {
+                            width: 150px;
+                            model: root.audio-devices;
+                            selected => { root.audio-device-selected(self.current-index); }
+                        }
+                        ToolButton {
+                            text: root.muted ? "🔇" : "🔊";
+                            dark: root.dark;
+                            clicked => { root.toggle-mute(); }
+                        }
+                        Slider {
+                            width: 110px;
+                            minimum: 0.0;
+                            maximum: 1.25;
+                            value <=> root.volume;
+                            changed(v) => { root.volume-changed(v); }
+                        }
+                        ToolButton { text: "⛶"; tip: @tr("Plein écran"); dark: root.dark; clicked => { root.toggle-fullscreen(); } }
                     }
 
-                    Rectangle { width: 10px; }
-
-                    Text { text: @tr("Vitesse"); color: root.fg-dim; vertical-alignment: center; }
-                    ComboBox {
-                        width: 92px;
-                        model: ["0.25×", "0.50×", "0.75×", "1.00×", "1.25×", "1.50×", "2.00×", "3.00×", "4.00×"];
-                        current-index <=> root.speed-index;
-                        selected => { root.speed-selected(self.current-index); }
+                    // Rangée 2 : contrôles secondaires (compact) quand la fenêtre est étroite.
+                    if root.two-row: HorizontalLayout {
+                        spacing: 6px;
+                        SecondaryControls {
+                            compact: true;
+                            dark: root.dark;
+                            audio-tracks: root.audio-tracks;
+                            subtitle-tracks: root.subtitle-tracks;
+                            speed-index <=> root.speed-index;
+                            audio-track-index <=> root.audio-track-index;
+                            subtitle-track-index <=> root.subtitle-track-index;
+                            sub-delay-text: root.sub-delay-text;
+                            audio-delay-text: root.audio-delay-text;
+                            speed-selected(i) => { root.speed-selected(i); }
+                            audio-track-selected(i) => { root.audio-track-selected(i); }
+                            subtitle-track-selected(i) => { root.subtitle-track-selected(i); }
+                            sub-delay-adjust(d) => { root.sub-delay-adjust(d); }
+                            audio-delay-adjust(d) => { root.audio-delay-adjust(d); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
                     }
-
-                    Text { text: @tr("Audio"); color: root.fg-dim; vertical-alignment: center; }
-                    ComboBox {
-                        width: 130px;
-                        model: root.audio-tracks;
-                        current-index <=> root.audio-track-index;
-                        selected => { root.audio-track-selected(self.current-index); }
-                    }
-
-                    Text { text: @tr("ST"); color: root.fg-dim; vertical-alignment: center; }
-                    ComboBox {
-                        width: 130px;
-                        model: root.subtitle-tracks;
-                        current-index <=> root.subtitle-track-index;
-                        selected => { root.subtitle-track-selected(self.current-index); }
-                    }
-                    ToolButton { text: "−"; tip: "ST plus tôt"; dark: root.dark; width: 24px; clicked => { root.sub-delay-adjust(-0.5); } }
-                    Text { text: root.sub-delay-text; color: root.fg-dim; vertical-alignment: center; }
-                    ToolButton { text: "+"; tip: "ST plus tard"; dark: root.dark; width: 24px; clicked => { root.sub-delay-adjust(0.5); } }
-
-                    Text { text: @tr("A/V"); color: root.fg-dim; vertical-alignment: center; }
-                    ToolButton { text: "−"; tip: "Audio plus tôt"; dark: root.dark; width: 24px; clicked => { root.audio-delay-adjust(-0.1); } }
-                    Text { text: root.audio-delay-text; color: root.fg-dim; vertical-alignment: center; }
-                    ToolButton { text: "+"; tip: "Audio plus tard"; dark: root.dark; width: 24px; clicked => { root.audio-delay-adjust(0.1); } }
-
-                    Rectangle { horizontal-stretch: 1; }
-
-                    Text {
-                        text: root.status-text;
-                        color: root.fg-dim;
-                        vertical-alignment: center;
-                        overflow: elide;
-                        max-width: 260px;
-                    }
-
-                    if root.audio-devices.length > 1: ComboBox {
-                        width: 150px;
-                        model: root.audio-devices;
-                        selected => { root.audio-device-selected(self.current-index); }
-                    }
-                    ToolButton {
-                        text: root.muted ? "🔇" : "🔊";
-                        dark: root.dark;
-                        clicked => { root.toggle-mute(); }
-                    }
-                    Slider {
-                        width: 110px;
-                        minimum: 0.0;
-                        maximum: 1.25;
-                        value <=> root.volume;
-                        changed(v) => { root.volume-changed(v); }
-                    }
-                    ToolButton { text: "⛶"; tip: "Plein écran"; dark: root.dark; clicked => { root.toggle-fullscreen(); } }
                 }
             }
+        }
+    }
+
+    // ---- Info-bulle flottante (rendue au-dessus de toute l'interface) ----
+    if TooltipState.text != "": Rectangle {
+        x: clamp(TooltipState.anchor-x - self.width / 2, 6px, root.width - self.width - 6px);
+        y: min(TooltipState.anchor-y + 5px, root.height - self.height - 6px);
+        width: tip-label.preferred-width + 16px;
+        height: tip-label.preferred-height + 8px;
+        border-radius: 5px;
+        background: #0d0f13ee;
+        border-width: 1px;
+        border-color: #ffffff2e;
+        tip-label := Text {
+            text: TooltipState.text;
+            color: #f2f4f7;
+            font-size: 12px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
         }
     }
 }
