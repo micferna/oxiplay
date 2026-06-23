@@ -12,8 +12,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Vrai quand le rendu vidéo GPU (wgpu) est actif. Renseigné par le module
-/// [`crate::render`] une fois le device Slint capturé ; lu par le décodeur
-/// pour décider d'extraire les plans YUV. Toujours `false` sans la feature `gpu`.
+/// `render` (feature `gpu`) une fois le device Slint capturé ; lu par le
+/// décodeur pour décider d'extraire les plans YUV. Toujours `false` sans la
+/// feature `gpu`.
 pub static GPU_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Le rendu GPU est-il actif ? (voir [`GPU_ACTIVE`].)
