@@ -123,10 +123,14 @@ jobs:
           # Récolte tout le contenu de dist\ (exe + DLLs + docs) en composants.
           & "$bin\heat.exe" dir dist -cg AppFiles -dr INSTALLFOLDER -srd -sreg -gg `
             -var var.DistDir -out AppFiles.wxs
-          & "$bin\candle.exe" -arch x64 -dVersion=$ver -dDistDir=dist `
+          # Guillemets obligatoires pour que pwsh expanse $ver dans l'argument.
+          & "$bin\candle.exe" -arch x64 "-dVersion=$ver" "-dDistDir=dist" `
             packaging\windows\oxiplay.wxs AppFiles.wxs
+          if ($LASTEXITCODE -ne 0) { throw "candle a échoué" }
+          # light lie les .wixobj produits par candle (pas les .wxs).
           & "$bin\light.exe" -sval -o "oxiplay-$env:GITHUB_REF_NAME-windows-x86_64.msi" `
-            packaging\windows\oxiplay.wxs AppFiles.wxs
+            oxiplay.wixobj AppFiles.wixobj
+          if ($LASTEXITCODE -ne 0) { throw "light a échoué" }
       - name: Release GitHub
         uses: softprops/action-gh-release@v3
         with:
