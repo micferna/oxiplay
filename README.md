@@ -16,12 +16,19 @@ Objectif : un concurrent open source de VLC, propre, modulaire et performant.
   libavformat/libavcodec sait ouvrir), jusqu'en **4K/8K** (HEVC, AV1, VP9…)
   avec **décodage matériel** (VAAPI/NVDEC/QSV/VideoToolbox/D3D11VA) et
   colorimétrie correcte BT.709/BT.2020
+- **Rendu vidéo GPU** (feature `gpu`) : conversion YUV→RGB et **tone-mapping
+  HDR 10 bits (PQ/HLG)** par shader wgpu pour `yuv420p`/`nv12`/`p010`, avec
+  repli logiciel (swscale) / GL automatique
 - **Audio** : MP3, FLAC, WAV, OGG, AAC, M4A, Opus, WMA…
 - **Blu-ray** : dossiers **BDMV**, images **`.iso`** et disques (libbluray,
   bouton 📀) — disques non chiffrés uniquement (l'AACS des disques commerciaux,
   dont l'UHD 4K, n'est pas pris en charge)
 - **Streaming** : HTTP/HTTPS progressif, HLS (`.m3u8`), RTSP (transport TCP),
-  IPTV (UDP/RTP multicast), avec reconnexion automatique et timeouts
+  IPTV (UDP/RTP multicast), avec reconnexion automatique, timeouts et
+  **interruption immédiate** (zapping sans gel)
+- **Listes IPTV** : une URL d'**annuaire M3U** (Free-TV, iptv-org…) charge
+  automatiquement toutes les chaînes dans la playlist (vs un vrai flux HLS, lu
+  directement) — avec **recherche** par nom et **filtre par pays/catégorie**
 - **Vidéos web** (YouTube, Vimeo, Twitch…) via **yt-dlp** s'il est installé :
   l'URL d'une page est résolue automatiquement en flux direct
 
@@ -107,7 +114,8 @@ ou lancez l'interface et utilisez 📂 (fichiers), le champ URL (réseau),
 
 ## État du projet & feuille de route
 
-MVP fonctionnel. Fonctionnalités avancées (voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) :
+Lecteur complet et utilisable au quotidien. Fonctionnalités avancées (voir
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) :
 
 - [x] **Vitesse sans changement de hauteur** (filtre `atempo`)
 - [x] **Égaliseur audio 10 bandes** (libavfilter, UI + persistance)
@@ -116,8 +124,14 @@ MVP fonctionnel. Fonctionnalités avancées (voir [docs/ARCHITECTURE.md](docs/AR
 - [x] **Accélération matérielle** (VAAPI, NVDEC/CUDA, VideoToolbox, D3D11VA,
       DXVA2, VDPAU) avec repli logiciel automatique
 - [x] **Mini-lecteur** (fenêtre compacte, contrôles flottants — touche `P`)
-- [ ] Rendu wgpu zéro copie (textures YUV + shader) pour le 4K/HDR
+- [x] **Rendu vidéo GPU** (feature `gpu`) : pipeline wgpu YUV→RGB pour
+      `yuv420p`/`nv12`/`p010`, **tone-mapping HDR 10 bits (PQ/HLG)**, repli GL
+- [x] **Listes IPTV** : chargement d'annuaires M3U distants + recherche et
+      filtre par pays/catégorie ; zapping réactif (I/O réseau interruptible)
+- [x] **Interface** : menu déroulant ⋮, plein écran immersif (contrôles au
+      survol), bilingue FR/EN, info-bulles, barre réactive
 - [ ] libass complet (polices embarquées, karaoké, transformations)
+- [ ] Menus Blu-ray BD-J (JVM via libbluray + AACS) — gros chantier
 - [ ] Always-on-top du mini-lecteur (dépend du backend de fenêtrage)
 
 ## Contribuer
