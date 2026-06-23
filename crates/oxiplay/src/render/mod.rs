@@ -9,26 +9,37 @@
 //! décodeur, notifier Slint) et la justesse visuelle se finalisent sur un
 //! écran. Voir `docs/RENDER_WGPU.md`.
 
+use crate::video::YuvFrame;
 use slint::wgpu_28::wgpu;
+use std::cell::RefCell;
 
-/// Plans YUV planaires d'une image décodée, avec ses métadonnées
-/// colorimétriques (alimente le shader).
-pub struct YuvFrame {
-    pub width: u32,
-    pub height: u32,
-    pub y: Vec<u8>,
-    pub u: Vec<u8>,
-    pub v: Vec<u8>,
-    pub y_stride: u32,
-    pub uv_stride: u32,
-    pub chroma_width: u32,
-    pub chroma_height: u32,
-    /// 0 = BT.601, 1 = BT.709, 2 = BT.2020.
-    pub matrix: u32,
-    /// 0 = plage limitée, 1 = plage complète.
-    pub full_range: u32,
-    /// 0 = SDR, 1 = HDR PQ, 2 = HDR HLG.
-    pub transfer: u32,
+thread_local! {
+    /// Le renderer vit sur le thread de l'événementiel Slint (où le device est
+    /// capturé par le notifier et où les images sont présentées). Pas besoin
+    /// qu'il soit `Send` : initialisation et usage se font sur ce même thread.
+    static RENDERER: RefCell<Option<GpuVideoRenderer>> = const { RefCell::new(None) };
+}
+
+/// Initialise le renderer GPU à partir du device/queue fournis par Slint
+/// (appelé depuis le notifier de rendu, à `RenderingSetup`). Active dès lors
+/// l'extraction des plans YUV côté décodeur ([`crate::video::GPU_ACTIVE`]).
+pub fn init_renderer(device: wgpu::Device, queue: wgpu::Queue) {
+    RENDERER.with(|r| {
+        *r.borrow_mut() = Some(GpuVideoRenderer::new(device, queue));
+    });
+    crate::video::GPU_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Convertit des plans YUV en image Slint via le pipeline GPU (YUV→RGB + HDR).
+/// Retourne `None` si le renderer n'est pas encore prêt ou si l'import échoue —
+/// l'appelant retombe alors sur le chemin RGBA logiciel.
+pub fn render_yuv_to_image(frame: &YuvFrame) -> Option<slint::Image> {
+    RENDERER.with(|r| {
+        let mut slot = r.borrow_mut();
+        let renderer = slot.as_mut()?;
+        let texture = renderer.render(frame);
+        slint::Image::try_from(texture).ok()
+    })
 }
 
 /// Textures d'entrée (un plan = une texture R8), recréées si la géométrie change.
