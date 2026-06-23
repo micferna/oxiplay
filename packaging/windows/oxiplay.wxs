@@ -19,9 +19,9 @@
     <Package InstallerVersion="500"
              Compressed="yes"
              InstallScope="perMachine"
-             Description="OxiPlay — lecteur multimédia" />
+             Description="OxiPlay media player" />
 
-    <MajorUpgrade DowngradeErrorMessage="Une version plus récente d'OxiPlay est déjà installée." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of OxiPlay is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <Feature Id="Main" Title="OxiPlay" Level="1">
