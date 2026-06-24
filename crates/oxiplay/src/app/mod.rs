@@ -74,6 +74,10 @@ pub struct App {
     /// pause (`None` = désactivé), et durée courante en minutes (pour le cycle).
     sleep_deadline: Option<std::time::Instant>,
     sleep_minutes: u32,
+    /// Boucle A-B : bornes (µs) d'un segment à répéter. Les deux posées → la
+    /// lecture reboucle de B vers A.
+    loop_a: Option<i64>,
+    loop_b: Option<i64>,
     /// Inhibiteur de mise en veille / d'économiseur d'écran (actif en lecture).
     inhibitor: Inhibitor,
     /// Contrôles média du bureau (touches multimédia, MPRIS/SMTC/Now Playing).
@@ -159,6 +163,8 @@ impl App {
             audio_delay_secs: settings.audio_delay_secs as f64,
             sleep_deadline: None,
             sleep_minutes: 0,
+            loop_a: None,
+            loop_b: None,
             inhibitor: Inhibitor::new(),
             media_keys: MediaKeys::new(),
             last_stats_at: std::time::Instant::now(),
@@ -217,6 +223,10 @@ impl App {
 
     fn open_source(&mut self, source: &str, title: &str) {
         self.stop_current(true);
+        // La boucle A-B ne vaut que pour le média courant.
+        self.loop_a = None;
+        self.loop_b = None;
+        self.refresh_ab_loop_indicator();
 
         let resume = self.settings.resume_position(source);
         let sink = self.make_frame_sink();
@@ -647,6 +657,48 @@ impl App {
             "Off".to_string()
         } else {
             format!("{} min", self.sleep_minutes)
+        }
+    }
+
+    /// Cycle la boucle A-B : pose A → pose B → efface. Quand A et B sont posés,
+    /// `tick` reboucle de B vers A.
+    pub fn toggle_ab_loop(&mut self) {
+        let Some(engine) = &self.engine else {
+            self.set_status("Ouvrez d'abord un média");
+            return;
+        };
+        let pos = engine.position_us();
+        match (self.loop_a, self.loop_b) {
+            (None, _) => {
+                self.loop_a = Some(pos);
+                self.loop_b = None;
+                self.set_status("Boucle A-B : point A posé (rappuyez pour B)");
+            }
+            (Some(a), None) if pos > a + 500_000 => {
+                self.loop_b = Some(pos);
+                self.set_status("Boucle A-B activée");
+            }
+            (Some(_), None) => {
+                self.set_status("Boucle A-B : B doit être après A");
+            }
+            _ => {
+                self.loop_a = None;
+                self.loop_b = None;
+                self.set_status("Boucle A-B désactivée");
+            }
+        }
+        self.refresh_ab_loop_indicator();
+    }
+
+    /// Reflète l'état de la boucle A-B dans l'UI (0 = off, 1 = A posé, 2 = active).
+    fn refresh_ab_loop_indicator(&self) {
+        if let Some(ui) = self.ui.upgrade() {
+            let state = match (self.loop_a, self.loop_b) {
+                (Some(_), Some(_)) => 2,
+                (Some(_), None) => 1,
+                _ => 0,
+            };
+            ui.set_ab_loop(state);
         }
     }
 
@@ -1114,6 +1166,15 @@ impl App {
             }
             ui.set_sleep_label("Off".into());
             self.set_status("Minuteur de veille écoulé — lecture en pause");
+        }
+
+        // Boucle A-B : reboucle de B vers A.
+        if let (Some(a), Some(b)) = (self.loop_a, self.loop_b) {
+            if let Some(engine) = &self.engine {
+                if engine.position_us() >= b {
+                    engine.seek(a);
+                }
+            }
         }
 
         // Commandes des contrôles média du bureau (touches multimédia, MPRIS).
