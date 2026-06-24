@@ -184,6 +184,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_open_recent, |a, index: i32| a.open_recent(index));
     on!(on_volume_changed, |a, v: f32| a.set_volume(v));
     on!(on_toggle_mute, |a| a.toggle_mute());
+    on!(on_toggle_normalize, |a| a.toggle_normalize());
     on!(on_speed_selected, |a, index: i32| a.set_speed_index(index));
     on!(on_toggle_fullscreen, |a| a.toggle_fullscreen());
     on!(on_take_screenshot, |a| a.take_screenshot());

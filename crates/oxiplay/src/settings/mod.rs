@@ -58,6 +58,8 @@ pub struct Settings {
     pub audio_delay_secs: f32,
     /// Gains de l'égaliseur 10 bandes (dB) — réservé à l'égaliseur audio.
     pub equalizer_gains: [f32; 10],
+    /// Normalisation du volume (loudness) activée.
+    pub normalize_audio: bool,
     /// Échelle de taille des sous-titres (1.0 = 100 %).
     pub subtitle_scale: f32,
     /// Couleur forcée des sous-titres (0xRRGGBB), ou `None` pour suivre le
@@ -99,6 +101,7 @@ impl Default for Settings {
             subtitle_delay_secs: 0.0,
             audio_delay_secs: 0.0,
             equalizer_gains: [0.0; 10],
+            normalize_audio: false,
             subtitle_scale: 1.0,
             subtitle_color: None,
             media_states: HashMap::new(),

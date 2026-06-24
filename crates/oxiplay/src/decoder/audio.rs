@@ -173,7 +173,7 @@ fn filter_and_push(
     if needs_rebuild {
         let speed = speed_milli as f64 / 1000.0;
         let gains = shared.equalizer_gains();
-        let spec = build_spec(speed, &gains, device_rate);
+        let spec = build_spec(speed, &gains, shared.normalize_enabled(), device_rate);
         *filter = Some(AudioFilter::new(
             in_format,
             &decoded.ch_layout(),

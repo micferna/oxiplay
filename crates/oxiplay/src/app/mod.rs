@@ -220,6 +220,7 @@ impl App {
                     .collect(),
             ));
             ui.set_eq_gains(float_model(&app.settings.equalizer_gains));
+            ui.set_normalize(app.settings.normalize_audio);
             ui.set_subtitle_scale(app.settings.subtitle_scale);
             ui.set_audio_devices(string_model(app.audio_device_names.clone()));
             app.refresh_recent(&ui);
@@ -279,6 +280,7 @@ impl App {
         engine.set_subtitle_delay(self.sub_delay_secs);
         engine.set_audio_delay(self.audio_delay_secs);
         engine.set_equalizer(self.settings.equalizer_gains);
+        engine.shared.set_normalize(self.settings.normalize_audio);
 
         // Sous-titres « sidecar » : un .srt/.ass portant le même nom que le
         // média (éventuellement suffixé par la langue préférée) est chargé
@@ -504,6 +506,24 @@ impl App {
         if let Some(ui) = self.ui.upgrade() {
             ui.set_muted(self.muted);
         }
+    }
+
+    /// (Dés)active la normalisation du volume (loudness). Persistée et
+    /// appliquée à la session courante comme aux médias suivants.
+    pub fn toggle_normalize(&mut self) {
+        let on = !self.settings.normalize_audio;
+        self.settings.normalize_audio = on;
+        if let Some(engine) = &self.engine {
+            engine.shared.set_normalize(on);
+        }
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_normalize(on);
+        }
+        self.set_status(if on {
+            "Normalisation du volume : activée"
+        } else {
+            "Normalisation du volume : désactivée"
+        });
     }
 
     pub fn set_speed_index(&mut self, index: i32) {

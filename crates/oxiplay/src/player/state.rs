@@ -103,9 +103,13 @@ pub struct SharedState {
     pub has_video: AtomicBool,
     /// Gains de l'égaliseur 10 bandes (dB), lus par le graphe de filtres.
     pub equalizer: Mutex<[f32; 10]>,
-    /// Compteur incrémenté à chaque modification de l'égaliseur : permet au
-    /// thread audio de détecter un changement et de reconstruire le graphe.
+    /// Compteur incrémenté à chaque modification de l'égaliseur **ou** de la
+    /// normalisation : permet au thread audio de détecter un changement et de
+    /// reconstruire le graphe.
     pub eq_generation: AtomicU64,
+    /// Normalisation du volume (filtre `dynaudnorm`) : égalise la loudness, utile
+    /// quand le niveau varie fortement (chaînes IPTV, playlists hétérogènes).
+    pub normalize: AtomicBool,
     /// Décodage matériel autorisé (repli logiciel si indisponible).
     pub hwaccel_enabled: AtomicBool,
     /// Rotation d'affichage : 0 = aucune, 1 = 90° horaire, 2 = 180°,
@@ -158,6 +162,7 @@ impl Default for SharedState {
             has_video: AtomicBool::new(false),
             equalizer: Mutex::new([0.0; 10]),
             eq_generation: AtomicU64::new(0),
+            normalize: AtomicBool::new(false),
             hwaccel_enabled: AtomicBool::new(true),
             rotation: AtomicU8::new(0),
             brightness_milli: AtomicI32::new(0),
@@ -186,6 +191,18 @@ impl SharedState {
     /// Remplace tous les gains de l'égaliseur et invalide le graphe audio.
     pub fn set_equalizer(&self, gains: [f32; 10]) {
         *self.equalizer.lock().unwrap() = gains;
+        self.eq_generation.fetch_add(1, Ordering::Release);
+    }
+
+    /// Normalisation du volume active ?
+    pub fn normalize_enabled(&self) -> bool {
+        self.normalize.load(Ordering::Relaxed)
+    }
+
+    /// (Dés)active la normalisation et invalide le graphe audio (réutilise le
+    /// compteur de l'égaliseur pour forcer la reconstruction).
+    pub fn set_normalize(&self, on: bool) {
+        self.normalize.store(on, Ordering::Relaxed);
         self.eq_generation.fetch_add(1, Ordering::Release);
     }
 
