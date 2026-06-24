@@ -72,11 +72,33 @@ impl RepeatMode {
     }
 }
 
+/// Générateur pseudo-aléatoire xorshift64 minimal (lecture aléatoire). Évite
+/// d'ajouter la dépendance `rand` pour un simple tirage d'index. Graine semée
+/// paresseusement depuis l'horloge système au premier usage (état 0 = non semé),
+/// ce qui permet de conserver `#[derive(Default)]` sur `Playlist`.
+fn xorshift_seed() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9e37_79b9_7f4a_7c15)
+        | 1
+}
+
 /// Playlist ordonnée avec un curseur de lecture.
 #[derive(Debug, Default)]
 pub struct Playlist {
     items: Vec<PlaylistItem>,
     current: Option<usize>,
+    /// Lecture aléatoire activée.
+    shuffle: bool,
+    /// Historique ordonné des index visités depuis le début du cycle aléatoire
+    /// courant (le dernier élément est la lecture en cours). Sert à éviter de
+    /// rejouer une entrée tant que le cycle n'est pas épuisé, et à reculer
+    /// (`previous`) dans l'ordre réellement joué.
+    shuffle_history: Vec<usize>,
+    /// État du PRNG (0 = pas encore semé).
+    rng: u64,
 }
 
 impl Playlist {
@@ -119,11 +141,14 @@ impl Playlist {
             Some(c) if c > index => Some(c - 1),
             other => other,
         };
+        // Les index de l'historique aléatoire deviennent caducs après décalage.
+        self.reset_shuffle_history();
     }
 
     pub fn clear(&mut self) {
         self.items.clear();
         self.current = None;
+        self.shuffle_history.clear();
     }
 
     /// Déplace l'entrée `index` de `delta` positions (±1 pour monter/descendre).
@@ -144,20 +169,65 @@ impl Playlist {
                 c
             }
         });
+        // Les index de l'historique aléatoire deviennent caducs après échange.
+        self.reset_shuffle_history();
     }
 
-    /// Positionne le curseur et retourne l'entrée correspondante.
+    /// Lecture aléatoire activée ?
+    pub fn shuffle(&self) -> bool {
+        self.shuffle
+    }
+
+    /// (Dés)active la lecture aléatoire et réamorce l'historique sur l'entrée
+    /// courante (qui ne sera donc pas rejouée immédiatement).
+    pub fn set_shuffle(&mut self, on: bool) {
+        self.shuffle = on;
+        self.reset_shuffle_history();
+    }
+
+    /// Réamorce l'historique aléatoire à la seule entrée courante. Appelé quand
+    /// la liste est restructurée (les anciens index deviendraient caducs).
+    fn reset_shuffle_history(&mut self) {
+        self.shuffle_history.clear();
+        if self.shuffle {
+            if let Some(c) = self.current {
+                self.shuffle_history.push(c);
+            }
+        }
+    }
+
+    /// Prochain entier pseudo-aléatoire (sème le PRNG au premier appel).
+    fn next_rand(&mut self) -> u64 {
+        if self.rng == 0 {
+            self.rng = xorshift_seed();
+        }
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 7;
+        self.rng ^= self.rng << 17;
+        self.rng
+    }
+
+    /// Positionne le curseur et retourne l'entrée correspondante. En mode
+    /// aléatoire, consigne l'entrée dans l'historique (sauf doublon consécutif),
+    /// pour que `previous` reparcoure l'ordre réellement joué.
     pub fn select(&mut self, index: usize) -> Option<&PlaylistItem> {
         if index < self.items.len() {
             self.current = Some(index);
+            if self.shuffle && self.shuffle_history.last() != Some(&index) {
+                self.shuffle_history.push(index);
+            }
             self.items.get(index)
         } else {
             None
         }
     }
 
-    /// Avance vers l'entrée suivante (None en fin de liste).
+    /// Avance vers l'entrée suivante (None en fin de liste). En mode aléatoire,
+    /// tire une entrée non encore jouée du cycle courant.
     pub fn advance(&mut self) -> Option<&PlaylistItem> {
+        if self.shuffle {
+            return self.advance_shuffled();
+        }
         let next = match self.current {
             Some(c) => c + 1,
             None if !self.items.is_empty() => 0,
@@ -166,8 +236,44 @@ impl Playlist {
         self.select(next)
     }
 
-    /// Recule vers l'entrée précédente.
+    /// Tire la prochaine entrée aléatoire : uniforme parmi les entrées non
+    /// encore jouées ce cycle ; une fois toutes jouées, recommence un cycle en
+    /// évitant de rejouer la courante d'affilée.
+    fn advance_shuffled(&mut self) -> Option<&PlaylistItem> {
+        let n = self.items.len();
+        if n == 0 {
+            return None;
+        }
+        if n == 1 {
+            return self.select(0);
+        }
+        let mut candidates: Vec<usize> = (0..n)
+            .filter(|i| !self.shuffle_history.contains(i))
+            .collect();
+        if candidates.is_empty() {
+            // Cycle épuisé : on repart à zéro sans rejouer la courante.
+            self.shuffle_history.clear();
+            if let Some(c) = self.current {
+                self.shuffle_history.push(c);
+            }
+            candidates = (0..n).filter(|i| Some(*i) != self.current).collect();
+        }
+        let pick = candidates[(self.next_rand() % candidates.len() as u64) as usize];
+        self.select(pick)
+    }
+
+    /// Recule vers l'entrée précédente. En mode aléatoire, remonte l'historique
+    /// des entrées réellement jouées.
     pub fn previous(&mut self) -> Option<&PlaylistItem> {
+        if self.shuffle {
+            if self.shuffle_history.len() < 2 {
+                return None;
+            }
+            self.shuffle_history.pop(); // retire la lecture courante
+            let prev = *self.shuffle_history.last().unwrap();
+            self.current = Some(prev); // sans réenregistrer dans l'historique
+            return self.items.get(prev);
+        }
         match self.current {
             Some(c) if c > 0 => self.select(c - 1),
             _ => None,
@@ -287,6 +393,42 @@ mod tests {
         assert_eq!(p.current_index(), Some(0));
         p.shift(0, -1); // hors limites : sans effet
         assert_eq!(p.current_index(), Some(0));
+    }
+
+    #[test]
+    fn shuffle_visits_all_without_repeat_then_recycles() {
+        let mut p = playlist_abc();
+        p.add(PlaylistItem::new("/tmp/d.mp4"));
+        p.select(0);
+        p.set_shuffle(true);
+        // Un cycle visite les 3 entrées restantes (jamais la courante) sans
+        // doublon, puis recommence.
+        let mut seen = std::collections::HashSet::new();
+        seen.insert(0usize);
+        for _ in 0..3 {
+            let idx = p.current_index().unwrap();
+            assert!(p.advance().is_some());
+            let next_idx = p.current_index().unwrap();
+            assert_ne!(next_idx, idx, "ne rejoue pas la courante d'affilée");
+            assert!(seen.insert(next_idx), "pas de doublon dans le cycle");
+        }
+        assert_eq!(seen.len(), 4, "cycle complet : toutes les entrées vues");
+        // Cycle suivant : on doit pouvoir rejouer (l'historique s'est réamorcé).
+        assert!(p.advance().is_some());
+    }
+
+    #[test]
+    fn shuffle_previous_rewinds_play_history() {
+        let mut p = playlist_abc();
+        p.select(0);
+        p.set_shuffle(true);
+        let first = p.current_index().unwrap();
+        assert!(p.advance().is_some());
+        let second = p.current_index().unwrap();
+        assert_ne!(first, second);
+        // `previous` revient sur l'entrée précédemment jouée, pas index-1.
+        assert!(p.previous().is_some());
+        assert_eq!(p.current_index(), Some(first));
     }
 
     #[test]
