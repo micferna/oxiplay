@@ -245,11 +245,13 @@ impl App {
         self.loop_a = None;
         self.loop_b = None;
         self.refresh_ab_loop_indicator();
-        // Le zoom/déplacement vidéo (transformation d'affichage) repart à neuf.
+        // Le zoom/déplacement et le mode d'image (transformations d'affichage)
+        // repartent à neuf.
         if let Some(ui) = self.ui.upgrade() {
             ui.set_video_zoom(1.0);
             ui.set_video_pan_x(0.0);
             ui.set_video_pan_y(0.0);
+            ui.set_aspect_mode(0);
         }
 
         let resume = self.settings.resume_position(source);
