@@ -14,6 +14,8 @@ pub struct PlaylistItem {
     /// Catégorie / pays (attribut `group-title` M3U), vide si absent. Sert au
     /// filtrage des gros annuaires IPTV.
     pub group: String,
+    /// URL du logo (attribut `tvg-logo` M3U), vide si absent.
+    pub logo: String,
 }
 
 impl PlaylistItem {
@@ -24,6 +26,7 @@ impl PlaylistItem {
             source,
             title,
             group: String::new(),
+            logo: String::new(),
         }
     }
 }
@@ -205,6 +208,7 @@ pub fn parse_m3u_content(text: &str, base: Option<&Path>) -> Vec<PlaylistItem> {
     let mut items = Vec::new();
     let mut pending_title: Option<String> = None;
     let mut pending_group: Option<String> = None;
+    let mut pending_logo: Option<String> = None;
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -213,6 +217,7 @@ pub fn parse_m3u_content(text: &str, base: Option<&Path>) -> Vec<PlaylistItem> {
         if let Some(info) = line.strip_prefix("#EXTINF:") {
             pending_title = info.split_once(',').map(|(_, t)| t.trim().to_string());
             pending_group = extract_attr(info, "group-title");
+            pending_logo = extract_attr(info, "tvg-logo");
         } else if line.starts_with('#') {
             continue;
         } else {
@@ -230,6 +235,9 @@ pub fn parse_m3u_content(text: &str, base: Option<&Path>) -> Vec<PlaylistItem> {
             }
             if let Some(g) = pending_group.take().filter(|g| !g.is_empty()) {
                 item.group = g;
+            }
+            if let Some(l) = pending_logo.take().filter(|l| !l.is_empty()) {
+                item.logo = l;
             }
             items.push(item);
         }
@@ -313,12 +321,19 @@ mod tests {
     #[test]
     fn parse_remote_channel_directory() {
         // Annuaire IPTV distant : titres `#EXTINF` + URLs absolues, base `None`.
-        let content = "#EXTM3U\n#EXTINF:-1 tvg-id=\"a\",Chaîne A\nhttps://ex.com/a.m3u8\n\
+        let content = "#EXTM3U\n\
+                       #EXTINF:-1 tvg-id=\"a\" tvg-logo=\"https://ex.com/a.png\" group-title=\"News\",Chaîne A\nhttps://ex.com/a.m3u8\n\
                        #EXTINF:-1,Chaîne B\nhttps://ex.com/b.m3u8\n";
         let items = parse_m3u_content(content, None);
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].title, "Chaîne A");
         assert_eq!(items[0].source, "https://ex.com/a.m3u8");
+        assert_eq!(items[0].logo, "https://ex.com/a.png");
+        assert_eq!(items[0].group, "News");
         assert_eq!(items[1].title, "Chaîne B");
+        // La chaîne B n'a pas d'attributs : logo/groupe vides (pas de fuite
+        // depuis l'entrée précédente).
+        assert!(items[1].logo.is_empty());
+        assert!(items[1].group.is_empty());
     }
 }
