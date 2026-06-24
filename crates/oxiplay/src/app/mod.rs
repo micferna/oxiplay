@@ -17,6 +17,8 @@ use crate::ui::{frame_to_image, MainWindow, PlaylistEntry};
 use crate::update::UpdateChecker;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -102,6 +104,14 @@ pub struct App {
     /// Canal de livraison des playlists M3U distantes (thread réseau → UI).
     m3u_tx: Sender<M3uFetch>,
     m3u_rx: Receiver<M3uFetch>,
+    /// Logos de chaînes chargés (URL → image), cache mémoire.
+    logo_cache: HashMap<String, slint::Image>,
+    /// Logos en cours de téléchargement (évite les doublons).
+    logo_pending: HashSet<String>,
+    /// Demandes de téléchargement de logo (UI → worker réseau).
+    logo_req_tx: Sender<String>,
+    /// Logos téléchargés (worker → UI) : (URL, chemin du cache disque).
+    logo_res_rx: Receiver<(String, PathBuf)>,
 }
 
 /// Résultat de la récupération d'une URL `.m3u`/`.m3u8` en arrière-plan.
@@ -140,6 +150,9 @@ impl App {
         };
         let (subtitle_dl_tx, subtitle_dl_rx) = unbounded();
         let (m3u_tx, m3u_rx) = unbounded();
+        let (logo_req_tx, logo_req_rx) = unbounded::<String>();
+        let (logo_res_tx, logo_res_rx) = unbounded::<(String, PathBuf)>();
+        spawn_logo_worker(logo_req_rx, logo_res_tx);
         let app = Self {
             ui,
             audio,
@@ -183,6 +196,10 @@ impl App {
             subtitle_dl_rx,
             m3u_tx,
             m3u_rx,
+            logo_cache: HashMap::new(),
+            logo_pending: HashSet::new(),
+            logo_req_tx,
+            logo_res_rx,
             settings,
         };
         if let Some(ui) = app.ui.upgrade() {
@@ -842,22 +859,43 @@ impl App {
         let search = self.playlist_search.to_lowercase();
         let mut entries = Vec::new();
         let mut visible = Vec::new();
+        // Logos à télécharger (URLs des entrées visibles non encore en cache),
+        // plafonnés pour ne pas marteler le réseau sur un gros annuaire.
+        let mut to_fetch: Vec<String> = Vec::new();
         for (i, item) in self.playlist.items().iter().enumerate() {
             let favorite = self.settings.is_favorite(&item.source);
             let by_group = self.playlist_group.is_empty() || item.group == self.playlist_group;
             let by_search = search.is_empty() || item.title.to_lowercase().contains(&search);
             let by_fav = !self.playlist_favorites_only || favorite;
             if by_group && by_search && by_fav {
+                let logo = if item.logo.is_empty() {
+                    slint::Image::default()
+                } else if let Some(img) = self.logo_cache.get(&item.logo) {
+                    img.clone()
+                } else {
+                    if to_fetch.len() < 200 && !self.logo_pending.contains(&item.logo) {
+                        to_fetch.push(item.logo.clone());
+                    }
+                    slint::Image::default()
+                };
                 entries.push(PlaylistEntry {
                     title: item.title.clone().into(),
                     is_current: Some(i) == current,
                     is_favorite: favorite,
+                    logo,
                 });
                 visible.push(i);
             }
         }
         self.playlist_visible = visible;
         ui.set_playlist_entries(ModelRc::from(Rc::new(VecModel::from(entries))));
+        // Lance les téléchargements de logos manquants (le worker écrit dans le
+        // cache disque, `tick` charge l'image et rafraîchit la liste).
+        for url in to_fetch {
+            if self.logo_pending.insert(url.clone()) {
+                let _ = self.logo_req_tx.send(url);
+            }
+        }
     }
 
     /// (Dé)marque l'entrée affichée en favori et persiste le choix.
@@ -1233,6 +1271,20 @@ impl App {
             }
         }
 
+        // Logos de chaînes téléchargés : on charge l'image (décodage côté UI) et
+        // on rafraîchit la liste une fois si au moins un est arrivé.
+        let mut got_logo = false;
+        while let Ok((url, path)) = self.logo_res_rx.try_recv() {
+            self.logo_pending.remove(&url);
+            if let Ok(img) = slint::Image::load_from_path(&path) {
+                self.logo_cache.insert(url, img);
+                got_logo = true;
+            }
+        }
+        if got_logo {
+            self.refresh_playlist_model();
+        }
+
         let Some(engine) = &self.engine else {
             // Rien en lecture : statut « arrêté » pour le bureau.
             self.media_keys.set_playback(false, true);
@@ -1478,6 +1530,56 @@ fn find_sidecar_subtitle(source: &str, prefer_lang: &str) -> Option<std::path::P
         }
     }
     lang_match.or(exact).or(any_lang)
+}
+
+/// Dossier de cache disque des logos de chaînes.
+fn logo_cache_dir() -> Option<PathBuf> {
+    Some(dirs::cache_dir()?.join("oxiplay").join("logos"))
+}
+
+/// Nom de fichier de cache déterministe pour une URL de logo.
+fn logo_filename(url: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    url.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+/// Télécharge un logo (plafonné à 4 Mio) dans le fichier de cache `path`.
+fn download_logo(url: &str, path: &std::path::Path) -> anyhow::Result<()> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    ureq::get(url)
+        .timeout(std::time::Duration::from_secs(10))
+        .call()?
+        .into_reader()
+        .take(4 * 1024 * 1024)
+        .read_to_end(&mut buf)?;
+    anyhow::ensure!(!buf.is_empty(), "logo vide");
+    std::fs::write(path, &buf)?;
+    Ok(())
+}
+
+/// Thread de fond : télécharge les logos demandés vers le cache disque (en les
+/// sautant s'ils y sont déjà) et renvoie le chemin au thread d'interface, qui
+/// se charge du décodage (`slint::Image` n'est pas `Send`).
+fn spawn_logo_worker(req: Receiver<String>, res: Sender<(String, PathBuf)>) {
+    let dir = logo_cache_dir();
+    if let Some(dir) = &dir {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    std::thread::Builder::new()
+        .name("oxiplay-logos".into())
+        .spawn(move || {
+            let Some(dir) = dir else { return };
+            while let Ok(url) = req.recv() {
+                let path = dir.join(logo_filename(&url));
+                if path.exists() || download_logo(&url, &path).is_ok() {
+                    let _ = res.send((url, path));
+                }
+            }
+        })
+        .ok();
 }
 
 /// Convertit une liste de chaînes en modèle Slint.

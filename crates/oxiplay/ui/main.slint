@@ -9,6 +9,7 @@ export struct PlaylistEntry {
     title: string,
     is-current: bool,
     is-favorite: bool,
+    logo: image,
 }
 
 // Bouton compact à base de texte (icônes unicode).
@@ -964,7 +965,15 @@ export component MainWindow inherits Window {
                                 HorizontalLayout {
                                     padding-left: 8px;
                                     padding-right: 4px;
-                                    spacing: 2px;
+                                    spacing: 6px;
+                                    // Logo de chaîne (tvg-logo, chargé en arrière-plan).
+                                    Image {
+                                        source: entry.logo;
+                                        width: 24px;
+                                        height: 24px;
+                                        image-fit: contain;
+                                        y: (parent.height - self.height) / 2;
+                                    }
                                     Text {
                                         text: entry.title;
                                         color: root.fg;
