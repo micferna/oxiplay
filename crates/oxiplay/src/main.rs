@@ -189,6 +189,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_speed_selected, |a, index: i32| a.set_speed_index(index));
     on!(on_toggle_fullscreen, |a| a.toggle_fullscreen());
     on!(on_take_screenshot, |a| a.take_screenshot());
+    on!(on_toggle_gif_capture, |a| a.toggle_gif_capture());
     on!(on_cycle_rotation, |a| a.cycle_rotation());
     on!(on_image_adjust, |a, b: f32, c: f32, s: f32| a
         .set_image_adjust(b, c, s));

@@ -76,6 +76,12 @@ pub struct App {
     /// Positions (µs) des marque-pages du média courant, dans l'ordre du modèle
     /// affiché (pour relier l'index de l'UI à une position de seek).
     bookmark_positions: Vec<i64>,
+    /// Capture GIF en cours : images RGBA réduites accumulées dans `tick`
+    /// (10 i/s), encodées hors thread UI à l'arrêt. `gif_dims` est figé sur la
+    /// première image capturée.
+    gif_capturing: bool,
+    gif_frames: Vec<Vec<u8>>,
+    gif_dims: (u32, u32),
     /// Décalage de synchronisation audio/vidéo (secondes).
     audio_delay_secs: f64,
     /// Minuteur de veille : échéance après laquelle la lecture est mise en
@@ -181,6 +187,9 @@ impl App {
             repeat_mode: RepeatMode::Off,
             last_channel: None,
             bookmark_positions: Vec::new(),
+            gif_capturing: false,
+            gif_frames: Vec::new(),
+            gif_dims: (0, 0),
             audio_delay_secs: settings.audio_delay_secs as f64,
             sleep_deadline: None,
             sleep_minutes: 0,
@@ -253,6 +262,9 @@ impl App {
         self.loop_a = None;
         self.loop_b = None;
         self.refresh_ab_loop_indicator();
+        // Une capture GIF en cours est abandonnée (ne pas mélanger deux scènes).
+        self.gif_capturing = false;
+        self.gif_frames.clear();
         // Le zoom/déplacement et le mode d'image (transformations d'affichage)
         // repartent à neuf.
         if let Some(ui) = self.ui.upgrade() {
@@ -260,6 +272,7 @@ impl App {
             ui.set_video_pan_x(0.0);
             ui.set_video_pan_y(0.0);
             ui.set_aspect_mode(0);
+            ui.set_gif_capturing(false);
         }
 
         let resume = self.settings.resume_position(source);
@@ -727,6 +740,87 @@ impl App {
             Ok(path) => self.set_status(&format!("Capture : {}", path.display())),
             Err(e) => self.set_status(&format!("Capture impossible : {e}")),
         }
+    }
+
+    /// Nombre maximal d'images d'un GIF (10 i/s → ~12 s) : borne la mémoire et
+    /// arrête automatiquement une capture oubliée.
+    const GIF_MAX_FRAMES: usize = 120;
+
+    /// Démarre ou arrête (et encode) une capture GIF de la scène en cours.
+    pub fn toggle_gif_capture(&mut self) {
+        if self.gif_capturing {
+            self.finish_gif_capture();
+            return;
+        }
+        if self.engine.is_none() {
+            self.set_status("Aucun média à capturer");
+            return;
+        }
+        self.gif_capturing = true;
+        self.gif_frames.clear();
+        self.gif_dims = (0, 0);
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_gif_capturing(true);
+        }
+        self.set_status("Capture GIF… (réappuyer pour arrêter)");
+    }
+
+    /// Capture une image pour le GIF en cours (appelée à chaque `tick`). Réduit
+    /// l'image et arrête automatiquement au-delà de la limite.
+    fn capture_gif_frame(&mut self) {
+        let Some(engine) = &self.engine else {
+            self.finish_gif_capture();
+            return;
+        };
+        let Some(frame) = engine.shared.last_frame.lock().unwrap().clone() else {
+            return;
+        };
+        if self.gif_dims == (0, 0) {
+            self.gif_dims = crate::video::gif_target_dims(frame.width, frame.height);
+        }
+        let (tw, th) = self.gif_dims;
+        if tw == 0 || th == 0 {
+            return;
+        }
+        self.gif_frames.push(crate::video::downscale_rgba(
+            &frame.pixels,
+            frame.width,
+            frame.height,
+            tw,
+            th,
+        ));
+        if self.gif_frames.len() >= Self::GIF_MAX_FRAMES {
+            self.finish_gif_capture();
+        }
+    }
+
+    /// Termine la capture GIF et lance l'encodage hors thread UI (le résultat
+    /// met à jour la barre d'état via la boucle d'événements).
+    fn finish_gif_capture(&mut self) {
+        self.gif_capturing = false;
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_gif_capturing(false);
+        }
+        let frames = std::mem::take(&mut self.gif_frames);
+        let (w, h) = self.gif_dims;
+        if frames.len() < 2 || w == 0 || h == 0 {
+            self.set_status("GIF annulé (trop court)");
+            return;
+        }
+        self.set_status(&format!("Encodage du GIF ({} images)…", frames.len()));
+        let ui = self.ui.clone();
+        std::thread::spawn(move || {
+            // 10 i/s ⇒ 10 centisecondes par image (cadence du `tick`).
+            let msg = match crate::video::save_gif(frames, w, h, 10) {
+                Ok(path) => format!("GIF : {}", path.display()),
+                Err(e) => format!("GIF impossible : {e}"),
+            };
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui.upgrade() {
+                    ui.set_status_text(msg.into());
+                }
+            });
+        });
     }
 
     pub fn toggle_theme(&mut self) {
@@ -1324,6 +1418,11 @@ impl App {
     /// l'état du moteur et gère l'enchaînement automatique de la playlist.
     pub fn tick(&mut self) {
         let Some(ui) = self.ui.upgrade() else { return };
+
+        // Capture GIF : accumule une image réduite à chaque battement (10 i/s).
+        if self.gif_capturing {
+            self.capture_gif_frame();
+        }
 
         // Mémorise la géométrie courante (uniquement en mode fenêtré normal :
         // ni mini-lecteur, ni plein écran, dont la taille n'est pas à retenir).
