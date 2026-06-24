@@ -70,6 +70,9 @@ pub struct App {
     pre_mini_size: Option<(f32, f32)>,
     /// Mode de répétition courant (boucle off / liste / média).
     repeat_mode: RepeatMode,
+    /// Index de playlist de la dernière chaîne/média quitté, pour le « zap
+    /// retour » (bascule façon télécommande TV). `None` au démarrage.
+    last_channel: Option<usize>,
     /// Décalage de synchronisation audio/vidéo (secondes).
     audio_delay_secs: f64,
     /// Minuteur de veille : échéance après laquelle la lecture est mise en
@@ -173,6 +176,7 @@ impl App {
             speed_index: SPEED_NORMAL_INDEX,
             pre_mini_size: None,
             repeat_mode: RepeatMode::Off,
+            last_channel: None,
             audio_delay_secs: settings.audio_delay_secs as f64,
             sleep_deadline: None,
             sleep_minutes: 0,
@@ -479,13 +483,36 @@ impl App {
     }
 
     pub fn next(&mut self) {
+        let leaving = self.playlist.current_index();
         if self.playlist.advance().is_some() {
+            self.last_channel = leaving;
             self.open_current();
         }
     }
 
     pub fn previous(&mut self) {
+        let leaving = self.playlist.current_index();
         if self.playlist.previous().is_some() {
+            self.last_channel = leaving;
+            self.open_current();
+        }
+    }
+
+    /// « Zap retour » : rebascule instantanément sur la dernière chaîne/média
+    /// quitté (façon touche « précédent » d'une télécommande). Échange les deux
+    /// pour pouvoir faire des allers-retours.
+    pub fn zap_back(&mut self) {
+        let Some(target) = self.last_channel else {
+            self.set_status("Aucune chaîne précédente");
+            return;
+        };
+        if target >= self.playlist.len() {
+            self.last_channel = None;
+            return;
+        }
+        let leaving = self.playlist.current_index();
+        if self.playlist.select(target).is_some() {
+            self.last_channel = leaving;
             self.open_current();
         }
     }
@@ -865,7 +892,9 @@ impl App {
         let Some(&real) = self.playlist_visible.get(index) else {
             return;
         };
-        if self.playlist.select(real).is_some() {
+        let leaving = self.playlist.current_index();
+        if real != leaving.unwrap_or(usize::MAX) && self.playlist.select(real).is_some() {
+            self.last_channel = leaving;
             self.open_current();
         }
     }
