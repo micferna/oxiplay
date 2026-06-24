@@ -232,6 +232,8 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
         .select_audio_device(idx));
     on!(on_subtitle_track_selected, |a, idx: i32| a
         .select_subtitle_track(idx));
+    on!(on_cycle_audio_track, |a| a.cycle_audio_track());
+    on!(on_cycle_subtitle_track, |a| a.cycle_subtitle_track());
     on_dialog!(on_load_subtitle_file, |app| async move {
         if let Some(file) = rfd::AsyncFileDialog::new()
             .set_title("Charger des sous-titres")
