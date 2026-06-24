@@ -155,6 +155,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_seek_relative, |a, secs: f32| a.seek_relative(secs));
     on!(on_previous_item, |a| a.previous());
     on!(on_next_item, |a| a.next());
+    on!(on_zap_back, |a| a.zap_back());
     on_dialog!(on_open_files, |app| async move {
         if let Some(files) = rfd::AsyncFileDialog::new()
             .set_title("Ouvrir des médias")

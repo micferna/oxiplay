@@ -433,6 +433,7 @@ export component MainWindow inherits Window {
     callback toggle-mini();
     callback cycle-repeat();
     callback toggle-shuffle();
+    callback zap-back();
     callback cycle-sleep-timer(); // cycle off/15/30/60/90 min
     callback toggle-ab-loop();    // touche L : A → B → off
     callback toggle-stats();
@@ -477,6 +478,7 @@ export component MainWindow inherits Window {
             if (event.text == "p" || event.text == "P") { root.toggle-mini(); return accept; }
             if (event.text == "r" || event.text == "R") { root.cycle-repeat(); return accept; }
             if (event.text == "y" || event.text == "Y") { root.toggle-shuffle(); return accept; }
+            if (event.text == "z" || event.text == "Z") { root.zap-back(); return accept; }
             if (event.text == "h" || event.text == "H") { root.toggle-stats(); return accept; }
             if (event.text == ".") { root.step-frame(true); return accept; }
             if (event.text == ",") { root.step-frame(false); return accept; }
@@ -1357,6 +1359,7 @@ export component MainWindow inherits Window {
                 HelpRow { dark: root.dark; keys: "P"; action: @tr("Mini-lecteur"); }
                 HelpRow { dark: root.dark; keys: "R"; action: @tr("Répétition"); }
                 HelpRow { dark: root.dark; keys: "Y"; action: @tr("Lecture aléatoire"); }
+                HelpRow { dark: root.dark; keys: "Z"; action: @tr("Zap retour (chaîne précédente)"); }
                 HelpRow { dark: root.dark; keys: "H"; action: @tr("Statistiques (HUD)"); }
                 HelpRow { dark: root.dark; keys: "S"; action: @tr("Capture d'écran"); }
                 HelpRow { dark: root.dark; keys: "B / V"; action: @tr("Piste audio / sous-titres suivante"); }
