@@ -398,6 +398,8 @@ export component MainWindow inherits Window {
     callback playlist-toggle-favorites-filter(); // bascule le filtre « favoris »
     callback audio-track-selected(int);
     callback subtitle-track-selected(int);
+    callback cycle-audio-track();    // touche B
+    callback cycle-subtitle-track(); // touche V
     callback audio-device-selected(int);
     callback load-subtitle-file();
     callback search-online-subs();
@@ -456,6 +458,8 @@ export component MainWindow inherits Window {
             if (event.text == "h" || event.text == "H") { root.toggle-stats(); return accept; }
             if (event.text == ".") { root.step-frame(true); return accept; }
             if (event.text == ",") { root.step-frame(false); return accept; }
+            if (event.text == "b" || event.text == "B") { root.cycle-audio-track(); return accept; }
+            if (event.text == "v" || event.text == "V") { root.cycle-subtitle-track(); return accept; }
             if (event.text == "?") { root.help-visible = !root.help-visible; return accept; }
             if (event.text == Key.RightArrow) { root.seek-relative(10); return accept; }
             if (event.text == Key.LeftArrow) { root.seek-relative(-10); return accept; }
@@ -1162,6 +1166,7 @@ export component MainWindow inherits Window {
                 HelpRow { dark: root.dark; keys: "R"; action: @tr("Répétition"); }
                 HelpRow { dark: root.dark; keys: "H"; action: @tr("Statistiques (HUD)"); }
                 HelpRow { dark: root.dark; keys: "S"; action: @tr("Capture d'écran"); }
+                HelpRow { dark: root.dark; keys: "B / V"; action: @tr("Piste audio / sous-titres suivante"); }
                 HelpRow { dark: root.dark; keys: ". / ,"; action: @tr("Image suivante / précédente"); }
                 HelpRow { dark: root.dark; keys: "?"; action: @tr("Afficher cette aide"); }
             }

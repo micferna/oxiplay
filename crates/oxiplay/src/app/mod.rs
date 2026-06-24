@@ -930,6 +930,36 @@ impl App {
         }
     }
 
+    /// Passe à la piste audio suivante (cyclique). Sans effet s'il y en a ≤ 1.
+    pub fn cycle_audio_track(&mut self) {
+        let count = self.audio_track_streams.len() as i32;
+        if count <= 1 {
+            return;
+        }
+        let Some(ui) = self.ui.upgrade() else { return };
+        let next = (ui.get_audio_track_index() + 1).rem_euclid(count);
+        ui.set_audio_track_index(next);
+        self.select_audio_track(next);
+        self.set_status(&format!("Piste audio {}/{}", next + 1, count));
+    }
+
+    /// Passe au sous-titre suivant (cyclique, « désactivés » inclus).
+    pub fn cycle_subtitle_track(&mut self) {
+        let count = self.subtitle_track_streams.len() as i32 + 1; // +1 = désactivés
+        if count <= 1 {
+            return; // aucune piste de sous-titres
+        }
+        let Some(ui) = self.ui.upgrade() else { return };
+        let next = (ui.get_subtitle_track_index() + 1).rem_euclid(count);
+        ui.set_subtitle_track_index(next);
+        self.select_subtitle_track(next);
+        if next == 0 {
+            self.set_status("Sous-titres désactivés");
+        } else {
+            self.set_status(&format!("Sous-titres : piste {}/{}", next, count - 1));
+        }
+    }
+
     /// Charge des sous-titres externes depuis le chemin choisi.
     pub fn load_subtitle_path(&mut self, path: std::path::PathBuf) {
         let Some(engine) = &self.engine else {
