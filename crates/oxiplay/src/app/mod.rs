@@ -73,6 +73,9 @@ pub struct App {
     /// Index de playlist de la dernière chaîne/média quitté, pour le « zap
     /// retour » (bascule façon télécommande TV). `None` au démarrage.
     last_channel: Option<usize>,
+    /// Positions (µs) des marque-pages du média courant, dans l'ordre du modèle
+    /// affiché (pour relier l'index de l'UI à une position de seek).
+    bookmark_positions: Vec<i64>,
     /// Décalage de synchronisation audio/vidéo (secondes).
     audio_delay_secs: f64,
     /// Minuteur de veille : échéance après laquelle la lecture est mise en
@@ -177,6 +180,7 @@ impl App {
             pre_mini_size: None,
             repeat_mode: RepeatMode::Off,
             last_channel: None,
+            bookmark_positions: Vec::new(),
             audio_delay_secs: settings.audio_delay_secs as f64,
             sleep_deadline: None,
             sleep_minutes: 0,
@@ -305,6 +309,7 @@ impl App {
         self.engine = Some(engine);
         self.current_source = Some(source.to_string());
         self.settings.push_history(source);
+        self.refresh_bookmarks_ui();
         self.audio_track_streams.clear();
         self.subtitle_track_streams.clear();
         self.chapter_count = 0;
@@ -456,6 +461,54 @@ impl App {
     }
 
     /// Saute au début d'un chapitre (sélection dans la liste déroulante).
+    /// Pose ou retire un marque-page à la position courante (bascule). Persisté
+    /// par média et reflété dans le menu déroulant des marque-pages.
+    pub fn toggle_bookmark(&mut self) {
+        let Some(engine) = &self.engine else {
+            self.set_status("Aucun média ouvert");
+            return;
+        };
+        let pos = engine.position_us();
+        let Some(source) = self.current_source.clone() else {
+            return;
+        };
+        let added = self.settings.toggle_bookmark(&source, pos);
+        self.refresh_bookmarks_ui();
+        self.set_status(if added {
+            "Marque-page posé"
+        } else {
+            "Marque-page retiré"
+        });
+    }
+
+    /// Saute au marque-page d'index `index` du média courant.
+    pub fn jump_bookmark(&mut self, index: i32) {
+        let Some(&pos) = self.bookmark_positions.get(index.max(0) as usize) else {
+            return;
+        };
+        if let Some(engine) = &self.engine {
+            engine.seek(pos);
+        }
+    }
+
+    /// Recharge la liste des marque-pages du média courant dans l'UI.
+    fn refresh_bookmarks_ui(&mut self) {
+        let positions = self
+            .current_source
+            .as_deref()
+            .map(|s| self.settings.bookmarks_for(s))
+            .unwrap_or_default();
+        let labels = positions
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| format!("🔖 {} · {}", i + 1, crate::utils::format_time(p)))
+            .collect();
+        self.bookmark_positions = positions;
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_bookmarks(string_model(labels));
+        }
+    }
+
     pub fn select_chapter(&mut self, index: i32) {
         if let Some(engine) = &self.engine {
             let target = engine

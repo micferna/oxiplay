@@ -77,9 +77,43 @@ pub struct Settings {
     pub language: String,
     /// Chaînes/médias marqués en favori (identifiés par leur source/URL).
     pub favorites: Vec<String>,
+    /// Marque-pages (positions µs, triées) par média, identifié par sa
+    /// source/URL. Permet de poser des repères dans un long fichier.
+    pub bookmarks: HashMap<String, Vec<i64>>,
     /// Dernière géométrie de la fenêtre (`None` = laisser le défaut). Restaurée
     /// au lancement.
     pub window: Option<WindowGeometry>,
+}
+
+impl Settings {
+    /// Tolérance de regroupement des marque-pages : deux repères à moins de 2 s
+    /// l'un de l'autre sont considérés identiques (ajout/suppression « proche »).
+    const BOOKMARK_TOLERANCE_US: i64 = 2_000_000;
+
+    /// Marque-pages triés d'un média.
+    pub fn bookmarks_for(&self, source: &str) -> Vec<i64> {
+        self.bookmarks.get(source).cloned().unwrap_or_default()
+    }
+
+    /// Bascule un marque-page à `pos_us` : supprime le repère proche s'il
+    /// existe, sinon en ajoute un. Retourne `true` si un repère a été ajouté.
+    pub fn toggle_bookmark(&mut self, source: &str, pos_us: i64) -> bool {
+        let list = self.bookmarks.entry(source.to_string()).or_default();
+        if let Some(i) = list
+            .iter()
+            .position(|&b| (b - pos_us).abs() <= Self::BOOKMARK_TOLERANCE_US)
+        {
+            list.remove(i);
+            if list.is_empty() {
+                self.bookmarks.remove(source);
+            }
+            false
+        } else {
+            list.push(pos_us);
+            list.sort_unstable();
+            true
+        }
+    }
 }
 
 /// Taille de la fenêtre, en pixels **logiques** (la position n'est pas
@@ -110,6 +144,7 @@ impl Default for Settings {
             subtitle_language: "fr".to_string(),
             language: "auto".to_string(),
             favorites: Vec::new(),
+            bookmarks: HashMap::new(),
             window: None,
         }
     }
@@ -300,6 +335,21 @@ mod tests {
         assert!(s.is_favorite("http://ex/a"));
         assert!(!s.toggle_favorite("http://ex/a")); // retiré
         assert!(!s.is_favorite("http://ex/a"));
+    }
+
+    #[test]
+    fn bookmarks_toggle_and_dedup() {
+        let mut s = Settings::default();
+        let src = "/film.mkv";
+        assert!(s.toggle_bookmark(src, 30_000_000)); // ajouté
+        assert!(s.toggle_bookmark(src, 90_000_000)); // ajouté, trié
+        assert_eq!(s.bookmarks_for(src), vec![30_000_000, 90_000_000]);
+        // Un repère à < 2 s d'un existant le retire (bascule « proche ».)
+        assert!(!s.toggle_bookmark(src, 31_000_000));
+        assert_eq!(s.bookmarks_for(src), vec![90_000_000]);
+        // Dernier retiré : l'entrée du média disparaît.
+        assert!(!s.toggle_bookmark(src, 90_500_000));
+        assert!(s.bookmarks_for(src).is_empty());
     }
 
     #[test]

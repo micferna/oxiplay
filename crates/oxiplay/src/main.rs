@@ -271,6 +271,8 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_toggle_ab_loop, |a| a.toggle_ab_loop());
     on!(on_toggle_stats, |a| a.toggle_stats());
     on!(on_chapter_selected, |a, idx: i32| a.select_chapter(idx));
+    on!(on_toggle_bookmark, |a| a.toggle_bookmark());
+    on!(on_jump_bookmark, |a, idx: i32| a.jump_bookmark(idx));
     on!(on_step_frame, |a, forward: bool| a.step_frame(forward));
     on!(on_audio_delay_adjust, |a, delta: f32| a
         .adjust_audio_delay(delta));

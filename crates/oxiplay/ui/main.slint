@@ -344,6 +344,7 @@ export component MainWindow inherits Window {
     in property <[string]> audio-devices: [];
     in property <[string]> recent-files: [];
     in property <[string]> chapters: [];
+    in property <[string]> bookmarks: [];
     in-out property <int> audio-track-index: 0;
     in-out property <int> subtitle-track-index: 0;
     in-out property <int> speed-index: 3; // 1.00×
@@ -439,6 +440,8 @@ export component MainWindow inherits Window {
     callback toggle-stats();
     callback audio-delay-adjust(float);   // ± secondes
     callback chapter-selected(int);
+    callback toggle-bookmark();
+    callback jump-bookmark(int);
     callback step-frame(bool);            // true = avant, false = arrière
 
     // Langue d'interface effective (« fr » ou « en »), affichée sur le bouton.
@@ -479,6 +482,7 @@ export component MainWindow inherits Window {
             if (event.text == "r" || event.text == "R") { root.cycle-repeat(); return accept; }
             if (event.text == "y" || event.text == "Y") { root.toggle-shuffle(); return accept; }
             if (event.text == "z" || event.text == "Z") { root.zap-back(); return accept; }
+            if (event.text == "k" || event.text == "K") { root.toggle-bookmark(); return accept; }
             if (event.text == "h" || event.text == "H") { root.toggle-stats(); return accept; }
             if (event.text == ".") { root.step-frame(true); return accept; }
             if (event.text == ",") { root.step-frame(false); return accept; }
@@ -529,6 +533,17 @@ export component MainWindow inherits Window {
                         width: 168px;
                         model: root.chapters;
                         selected => { root.chapter-selected(self.current-index); }
+                    }
+                    if root.media-loaded: ToolButton {
+                        text: "🔖";
+                        tip: @tr("Poser / retirer un marque-page (K)");
+                        dark: root.dark;
+                        clicked => { root.toggle-bookmark(); }
+                    }
+                    if root.bookmarks.length > 0: ComboBox {
+                        width: 150px;
+                        model: root.bookmarks;
+                        selected => { root.jump-bookmark(self.current-index); }
                     }
                     url-input := LineEdit {
                         placeholder-text: @tr("URL réseau (http, https, hls .m3u8, rtsp)…");
@@ -1360,6 +1375,7 @@ export component MainWindow inherits Window {
                 HelpRow { dark: root.dark; keys: "R"; action: @tr("Répétition"); }
                 HelpRow { dark: root.dark; keys: "Y"; action: @tr("Lecture aléatoire"); }
                 HelpRow { dark: root.dark; keys: "Z"; action: @tr("Zap retour (chaîne précédente)"); }
+                HelpRow { dark: root.dark; keys: "K"; action: @tr("Poser / retirer un marque-page"); }
                 HelpRow { dark: root.dark; keys: "H"; action: @tr("Statistiques (HUD)"); }
                 HelpRow { dark: root.dark; keys: "S"; action: @tr("Capture d'écran"); }
                 HelpRow { dark: root.dark; keys: "B / V"; action: @tr("Piste audio / sous-titres suivante"); }
