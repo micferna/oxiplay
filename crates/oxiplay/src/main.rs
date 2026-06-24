@@ -262,6 +262,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
         .apply_eq_preset(index));
     on!(on_toggle_mini, |a| a.toggle_mini());
     on!(on_cycle_repeat, |a| a.cycle_repeat());
+    on!(on_toggle_shuffle, |a| a.toggle_shuffle());
     on!(on_cycle_sleep_timer, |a| a.cycle_sleep_timer());
     on!(on_toggle_ab_loop, |a| a.toggle_ab_loop());
     on!(on_toggle_stats, |a| a.toggle_stats());

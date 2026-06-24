@@ -354,6 +354,7 @@ export component MainWindow inherits Window {
     in property <bool> fullscreen: false;
     in-out property <bool> mini: false;
     in-out property <int> repeat-mode: 0; // 0 = off, 1 = toute la liste, 2 = média courant
+    in-out property <bool> shuffle: false;
     in property <[string]> eq-frequencies: [];
     in-out property <[float]> eq-gains: [];
     in-out property <bool> eq-visible: false;
@@ -416,6 +417,7 @@ export component MainWindow inherits Window {
     callback eq-preset-selected(int);     // index de préréglage
     callback toggle-mini();
     callback cycle-repeat();
+    callback toggle-shuffle();
     callback cycle-sleep-timer(); // cycle off/15/30/60/90 min
     callback toggle-ab-loop();    // touche L : A → B → off
     callback toggle-stats();
@@ -458,6 +460,7 @@ export component MainWindow inherits Window {
             if (event.text == "s" || event.text == "S") { root.take-screenshot(); return accept; }
             if (event.text == "p" || event.text == "P") { root.toggle-mini(); return accept; }
             if (event.text == "r" || event.text == "R") { root.cycle-repeat(); return accept; }
+            if (event.text == "y" || event.text == "Y") { root.toggle-shuffle(); return accept; }
             if (event.text == "h" || event.text == "H") { root.toggle-stats(); return accept; }
             if (event.text == ".") { root.step-frame(true); return accept; }
             if (event.text == ",") { root.step-frame(false); return accept; }
@@ -601,10 +604,22 @@ export component MainWindow inherits Window {
                         }
                     }
 
-                    // Double-clic : plein écran.
+                    // Gestes souris sur la vidéo : clic = pause, double-clic =
+                    // plein écran, molette = volume (façon VLC/mpv).
                     TouchArea {
                         clicked => { root.play-pause(); }
                         double-clicked => { root.toggle-fullscreen(); }
+                        scroll-event(event) => {
+                            if (event.delta-y > 0) {
+                                root.volume-changed(min(1.25, root.volume + 0.05));
+                                return accept;
+                            }
+                            if (event.delta-y < 0) {
+                                root.volume-changed(max(0.0, root.volume - 0.05));
+                                return accept;
+                            }
+                            return reject;
+                        }
                     }
 
                     // Panneau égaliseur flottant (au-dessus de la vidéo).
@@ -1075,6 +1090,13 @@ export component MainWindow inherits Window {
                             active: root.repeat-mode != 0;
                             clicked => { root.cycle-repeat(); }
                         }
+                        ToolButton {
+                            text: "🔀";
+                            tip: @tr("Lecture aléatoire (Y)");
+                            dark: root.dark;
+                            active: root.shuffle;
+                            clicked => { root.toggle-shuffle(); }
+                        }
 
                         if !root.two-row: Rectangle { width: 10px; }
                         if !root.two-row: SecondaryControls {
@@ -1184,6 +1206,7 @@ export component MainWindow inherits Window {
                 HelpRow { dark: root.dark; keys: "F / Échap"; action: @tr("Plein écran (Échap pour sortir)"); }
                 HelpRow { dark: root.dark; keys: "P"; action: @tr("Mini-lecteur"); }
                 HelpRow { dark: root.dark; keys: "R"; action: @tr("Répétition"); }
+                HelpRow { dark: root.dark; keys: "Y"; action: @tr("Lecture aléatoire"); }
                 HelpRow { dark: root.dark; keys: "H"; action: @tr("Statistiques (HUD)"); }
                 HelpRow { dark: root.dark; keys: "S"; action: @tr("Capture d'écran"); }
                 HelpRow { dark: root.dark; keys: "B / V"; action: @tr("Piste audio / sous-titres suivante"); }

@@ -644,6 +644,22 @@ impl App {
         });
     }
 
+    /// (Dés)active la lecture aléatoire et le reflète dans l'UI. L'auto-avance
+    /// de fin de média (`tick`) et les boutons précédent/suivant passent par
+    /// `Playlist::advance`/`previous`, qui respectent déjà ce mode.
+    pub fn toggle_shuffle(&mut self) {
+        let on = !self.playlist.shuffle();
+        self.playlist.set_shuffle(on);
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_shuffle(on);
+        }
+        self.set_status(if on {
+            "Lecture aléatoire : activée"
+        } else {
+            "Lecture aléatoire : désactivée"
+        });
+    }
+
     /// Cycle le minuteur de veille : off → 15 → 30 → 60 → 90 min → off. À
     /// expiration (vérifiée dans `tick`), la lecture est mise en pause.
     pub fn cycle_sleep_timer(&mut self) {
