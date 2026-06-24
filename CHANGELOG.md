@@ -25,6 +25,8 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   barre de contrôles flottante réapparaît au survol du bas.
 
 ### Ajouté
+- **Boucle A-B** (touche `L`) : répète un segment du média — 1er appui pose A,
+  2e pose B (répétition active), 3e désactive. Badge dans la barre de progression.
 - **Raccourcis de pistes** : `B` cycle la piste audio, `V` cycle les sous-titres
   (« désactivés » inclus) — façon mpv, avec retour de statut.
 - **Minuteur de veille** (menu ⏲) : met automatiquement la lecture en pause

@@ -362,6 +362,7 @@ export component MainWindow inherits Window {
     in-out property <bool> stats-visible: false;
     in-out property <bool> help-visible: false; // overlay des raccourcis (touche ?)
     in property <string> sleep-label: "Off"; // état du minuteur de veille
+    in property <int> ab-loop: 0; // boucle A-B : 0 = off, 1 = A posé, 2 = active
     in property <string> update-version: ""; // non vide = mise à jour dispo
     in-out property <bool> subs-visible: false;
     in-out property <float> img-brightness: 0.0;
@@ -415,6 +416,7 @@ export component MainWindow inherits Window {
     callback toggle-mini();
     callback cycle-repeat();
     callback cycle-sleep-timer(); // cycle off/15/30/60/90 min
+    callback toggle-ab-loop();    // touche L : A → B → off
     callback toggle-stats();
     callback audio-delay-adjust(float);   // ± secondes
     callback chapter-selected(int);
@@ -460,6 +462,7 @@ export component MainWindow inherits Window {
             if (event.text == ",") { root.step-frame(false); return accept; }
             if (event.text == "b" || event.text == "B") { root.cycle-audio-track(); return accept; }
             if (event.text == "v" || event.text == "V") { root.cycle-subtitle-track(); return accept; }
+            if (event.text == "l" || event.text == "L") { root.toggle-ab-loop(); return accept; }
             if (event.text == "?") { root.help-visible = !root.help-visible; return accept; }
             if (event.text == Key.RightArrow) { root.seek-relative(10); return accept; }
             if (event.text == Key.LeftArrow) { root.seek-relative(-10); return accept; }
@@ -1008,6 +1011,14 @@ export component MainWindow inherits Window {
                         enabled: root.seekable && root.media-loaded;
                         seek(f) => { root.seek-to(f); }
                     }
+                    // Badge boucle A-B (L) : « A→ » en attente de B, « A-B » active.
+                    if root.ab-loop > 0: Text {
+                        text: root.ab-loop == 2 ? "🔁 A-B" : "A→";
+                        color: #ff8a3d;
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
                     Text {
                         text: root.duration-text;
                         color: root.fg-dim;
@@ -1167,6 +1178,7 @@ export component MainWindow inherits Window {
                 HelpRow { dark: root.dark; keys: "H"; action: @tr("Statistiques (HUD)"); }
                 HelpRow { dark: root.dark; keys: "S"; action: @tr("Capture d'écran"); }
                 HelpRow { dark: root.dark; keys: "B / V"; action: @tr("Piste audio / sous-titres suivante"); }
+                HelpRow { dark: root.dark; keys: "L"; action: @tr("Boucle A-B (segment) : A → B → off"); }
                 HelpRow { dark: root.dark; keys: ". / ,"; action: @tr("Image suivante / précédente"); }
                 HelpRow { dark: root.dark; keys: "?"; action: @tr("Afficher cette aide"); }
             }
