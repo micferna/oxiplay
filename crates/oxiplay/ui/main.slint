@@ -361,6 +361,7 @@ export component MainWindow inherits Window {
     in property <string> stats-text: "";
     in-out property <bool> stats-visible: false;
     in-out property <bool> help-visible: false; // overlay des raccourcis (touche ?)
+    in property <string> sleep-label: "Off"; // état du minuteur de veille
     in property <string> update-version: ""; // non vide = mise à jour dispo
     in-out property <bool> subs-visible: false;
     in-out property <float> img-brightness: 0.0;
@@ -411,6 +412,7 @@ export component MainWindow inherits Window {
     callback eq-preset-selected(int);     // index de préréglage
     callback toggle-mini();
     callback cycle-repeat();
+    callback cycle-sleep-timer(); // cycle off/15/30/60/90 min
     callback toggle-stats();
     callback audio-delay-adjust(float);   // ± secondes
     callback chapter-selected(int);
@@ -1218,6 +1220,14 @@ export component MainWindow inherits Window {
                     icon: "🌐";
                     label: root.ui-language == "en" ? "Language: English" : "Langue : Français";
                     activated => { root.cycle-language(); MenuState.open = false; }
+                }
+                MenuRow {
+                    dark: root.dark;
+                    icon: "⏲";
+                    // Le menu reste ouvert pour pouvoir cycler les durées.
+                    label: @tr("Minuteur de veille") + " : " + root.sleep-label;
+                    active: root.sleep-label != "Off";
+                    activated => { root.cycle-sleep-timer(); }
                 }
                 MenuRow {
                     dark: root.dark;

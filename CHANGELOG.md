@@ -25,6 +25,8 @@ le projet suit [SemVer](https://semver.org/lang/fr/).
   barre de contrôles flottante réapparaît au survol du bas.
 
 ### Ajouté
+- **Minuteur de veille** (menu ⏲) : met automatiquement la lecture en pause
+  après 15 / 30 / 60 / 90 min (cycle dans le menu, off pour désactiver).
 - **Mémorisation de la taille de fenêtre** : la fenêtre rouvre à la taille de la
   session précédente (la taille réelle est lue via `root.width/height`, plus
   fiable que `window().size()`). La position n'est pas mémorisée (gérée par le
