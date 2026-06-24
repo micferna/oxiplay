@@ -355,6 +355,12 @@ export component MainWindow inherits Window {
     in-out property <bool> mini: false;
     in-out property <int> repeat-mode: 0; // 0 = off, 1 = toute la liste, 2 = média courant
     in-out property <bool> shuffle: false;
+    // Zoom (1.0 = ajusté) et déplacement (pan, en px logiques) de l'image vidéo.
+    // Transformation purement d'affichage (clip de la source Slint) : aucun
+    // recalcul de pixels côté décodeur.
+    in-out property <float> video-zoom: 1.0;
+    in-out property <length> video-pan-x: 0px;
+    in-out property <length> video-pan-y: 0px;
     in property <[string]> eq-frequencies: [];
     in-out property <[float]> eq-gains: [];
     in-out property <bool> eq-visible: false;
@@ -468,6 +474,13 @@ export component MainWindow inherits Window {
             if (event.text == "v" || event.text == "V") { root.cycle-subtitle-track(); return accept; }
             if (event.text == "l" || event.text == "L") { root.toggle-ab-loop(); return accept; }
             if (event.text == "?") { root.help-visible = !root.help-visible; return accept; }
+            if (event.text == "+" || event.text == "=") { root.video-zoom = min(4.0, root.video-zoom + 0.1); return accept; }
+            if (event.text == "-") {
+                root.video-zoom = max(1.0, root.video-zoom - 0.1);
+                if (root.video-zoom <= 1.0) { root.video-pan-x = 0; root.video-pan-y = 0; }
+                return accept;
+            }
+            if (event.text == "0") { root.video-zoom = 1.0; root.video-pan-x = 0; root.video-pan-y = 0; return accept; }
             if (event.text == Key.RightArrow) { root.seek-relative(10); return accept; }
             if (event.text == Key.LeftArrow) { root.seek-relative(-10); return accept; }
             if (event.text == Key.UpArrow) { root.volume-changed(min(1.25, root.volume + 0.05)); return accept; }
@@ -554,11 +567,25 @@ export component MainWindow inherits Window {
                     horizontal-stretch: 1;
                     background: #000000;
 
-                    if root.has-video: Image {
+                    // Image vidéo zoomable/déplaçable : le cadre découpe
+                    // (`clip`) et l'image agrandie par le zoom est décalée par le
+                    // pan, borné pour ne jamais sortir du cadre.
+                    if root.has-video: Rectangle {
                         width: 100%;
                         height: 100%;
-                        source: root.video-frame;
-                        image-fit: contain;
+                        clip: true;
+                        Image {
+                            property <length> max-pan-x: max(0px, (self.width - parent.width) / 2);
+                            property <length> max-pan-y: max(0px, (self.height - parent.height) / 2);
+                            width: parent.width * root.video-zoom;
+                            height: parent.height * root.video-zoom;
+                            x: (parent.width - self.width) / 2
+                                + clamp(root.video-pan-x, -self.max-pan-x, self.max-pan-x);
+                            y: (parent.height - self.height) / 2
+                                + clamp(root.video-pan-y, -self.max-pan-y, self.max-pan-y);
+                            source: root.video-frame;
+                            image-fit: contain;
+                        }
                     }
                     if !root.has-video: VerticalLayout {
                         alignment: center;
@@ -605,11 +632,44 @@ export component MainWindow inherits Window {
                     }
 
                     // Gestes souris sur la vidéo : clic = pause, double-clic =
-                    // plein écran, molette = volume (façon VLC/mpv).
-                    TouchArea {
+                    // plein écran, molette = volume, Ctrl+molette = zoom, et
+                    // glisser = déplacement (pan) quand l'image est zoomée.
+                    gestures := TouchArea {
+                        // Pan capturé au début du glisser, pour éviter toute
+                        // dérive (pan = valeur initiale + déplacement total).
+                        property <length> pan-start-x;
+                        property <length> pan-start-y;
                         clicked => { root.play-pause(); }
                         double-clicked => { root.toggle-fullscreen(); }
+                        pointer-event(event) => {
+                            if (event.kind == PointerEventKind.down) {
+                                self.pan-start-x = root.video-pan-x;
+                                self.pan-start-y = root.video-pan-y;
+                            }
+                        }
+                        moved => {
+                            if (root.video-zoom > 1.0) {
+                                root.video-pan-x = self.pan-start-x + (self.mouse-x - self.pressed-x);
+                                root.video-pan-y = self.pan-start-y + (self.mouse-y - self.pressed-y);
+                            }
+                        }
                         scroll-event(event) => {
+                            if (event.modifiers.control) {
+                                // Zoom 100 %..400 % par pas de 10 %.
+                                if (event.delta-y > 0) {
+                                    root.video-zoom = min(4.0, root.video-zoom + 0.1);
+                                    return accept;
+                                }
+                                if (event.delta-y < 0) {
+                                    root.video-zoom = max(1.0, root.video-zoom - 0.1);
+                                    if (root.video-zoom <= 1.0) {
+                                        root.video-pan-x = 0;
+                                        root.video-pan-y = 0;
+                                    }
+                                    return accept;
+                                }
+                                return reject;
+                            }
                             if (event.delta-y > 0) {
                                 root.volume-changed(min(1.25, root.volume + 0.05));
                                 return accept;
@@ -619,6 +679,23 @@ export component MainWindow inherits Window {
                                 return accept;
                             }
                             return reject;
+                        }
+                    }
+
+                    // Indicateur de zoom (visible seulement si zoomé).
+                    if root.video-zoom > 1.0: Rectangle {
+                        x: 16px;
+                        y: 16px;
+                        width: zoom-label.preferred-width + 16px;
+                        height: zoom-label.preferred-height + 8px;
+                        background: #000000b0;
+                        border-radius: 6px;
+                        zoom-label := Text {
+                            x: 8px;
+                            y: 4px;
+                            text: "🔍 " + round(root.video-zoom * 100) + "%";
+                            color: #ffffff;
+                            font-size: 14px;
                         }
                     }
 
@@ -1212,6 +1289,8 @@ export component MainWindow inherits Window {
                 HelpRow { dark: root.dark; keys: "B / V"; action: @tr("Piste audio / sous-titres suivante"); }
                 HelpRow { dark: root.dark; keys: "L"; action: @tr("Boucle A-B (segment) : A → B → off"); }
                 HelpRow { dark: root.dark; keys: ". / ,"; action: @tr("Image suivante / précédente"); }
+                HelpRow { dark: root.dark; keys: "+ / − / 0"; action: @tr("Zoom avant / arrière / réinitialiser"); }
+                HelpRow { dark: root.dark; keys: @tr("Glisser"); action: @tr("Déplacer l'image zoomée (pan)"); }
                 HelpRow { dark: root.dark; keys: "?"; action: @tr("Afficher cette aide"); }
             }
         }
