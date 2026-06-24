@@ -369,6 +369,7 @@ export component MainWindow inherits Window {
     in-out property <[float]> eq-gains: [];
     in-out property <bool> eq-visible: false;
     in-out property <bool> normalize: false;
+    in property <bool> gif-capturing: false;
     in property <string> media-info-text: "";
     in-out property <bool> info-visible: false;
     in property <string> stats-text: "";
@@ -442,6 +443,7 @@ export component MainWindow inherits Window {
     callback chapter-selected(int);
     callback toggle-bookmark();
     callback jump-bookmark(int);
+    callback toggle-gif-capture();
     callback step-frame(bool);            // true = avant, false = arrière
 
     // Langue d'interface effective (« fr » ou « en »), affichée sur le bouton.
@@ -478,6 +480,7 @@ export component MainWindow inherits Window {
             if (event.text == "m" || event.text == "M") { root.toggle-mute(); return accept; }
             if (event.text == "n" || event.text == "N") { root.toggle-normalize(); return accept; }
             if (event.text == "s" || event.text == "S") { root.take-screenshot(); return accept; }
+            if (event.text == "g" || event.text == "G") { root.toggle-gif-capture(); return accept; }
             if (event.text == "p" || event.text == "P") { root.toggle-mini(); return accept; }
             if (event.text == "r" || event.text == "R") { root.cycle-repeat(); return accept; }
             if (event.text == "y" || event.text == "Y") { root.toggle-shuffle(); return accept; }
@@ -554,7 +557,14 @@ export component MainWindow inherits Window {
                     ToolButton { text: "💬"; dark: root.dark; clicked => { root.load-subtitle-file(); } }
                     ToolButton { text: "🔍"; tip: @tr("Sous-titres en ligne (OpenSubtitles)"); dark: root.dark; clicked => { root.search-online-subs(); } }
                     ToolButton { text: "Aa"; tip: @tr("Style sous-titres"); dark: root.dark; active: root.subs-visible; clicked => { root.subs-visible = !root.subs-visible; } }
-                    ToolButton { text: "📷"; dark: root.dark; clicked => { root.take-screenshot(); } }
+                    ToolButton { text: "📷"; tip: @tr("Capture d'écran (S)"); dark: root.dark; clicked => { root.take-screenshot(); } }
+                    ToolButton {
+                        text: root.gif-capturing ? "⏺ GIF" : "🎞";
+                        tip: @tr("Capture GIF animée (G)");
+                        dark: root.dark;
+                        active: root.gif-capturing;
+                        clicked => { root.toggle-gif-capture(); }
+                    }
                     ToolButton {
                         text: "🎛";
                         dark: root.dark;
@@ -1378,6 +1388,7 @@ export component MainWindow inherits Window {
                 HelpRow { dark: root.dark; keys: "K"; action: @tr("Poser / retirer un marque-page"); }
                 HelpRow { dark: root.dark; keys: "H"; action: @tr("Statistiques (HUD)"); }
                 HelpRow { dark: root.dark; keys: "S"; action: @tr("Capture d'écran"); }
+                HelpRow { dark: root.dark; keys: "G"; action: @tr("Capture GIF animée (marche/arrêt)"); }
                 HelpRow { dark: root.dark; keys: "B / V"; action: @tr("Piste audio / sous-titres suivante"); }
                 HelpRow { dark: root.dark; keys: "L"; action: @tr("Boucle A-B (segment) : A → B → off"); }
                 HelpRow { dark: root.dark; keys: ". / ,"; action: @tr("Image suivante / précédente"); }

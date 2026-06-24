@@ -87,9 +87,110 @@ pub fn save_screenshot(frame: &Arc<VideoFrameData>) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Réduit une image RGBA à `target_w × target_h` par échantillonnage au plus
+/// proche voisin (suffisant pour un GIF, peu coûteux). `src` fait
+/// `src_w * src_h * 4` octets ; le résultat `target_w * target_h * 4`.
+pub fn downscale_rgba(src: &[u8], src_w: u32, src_h: u32, target_w: u32, target_h: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (target_w * target_h * 4) as usize];
+    if src_w == 0 || src_h == 0 || target_w == 0 || target_h == 0 {
+        return out;
+    }
+    for ty in 0..target_h {
+        let sy = (ty * src_h / target_h).min(src_h - 1);
+        for tx in 0..target_w {
+            let sx = (tx * src_w / target_w).min(src_w - 1);
+            let so = ((sy * src_w + sx) * 4) as usize;
+            let to = ((ty * target_w + tx) * 4) as usize;
+            if so + 4 <= src.len() {
+                out[to..to + 4].copy_from_slice(&src[so..so + 4]);
+            }
+        }
+    }
+    out
+}
+
+/// Dimension maximale (largeur) d'un GIF capturé : les images sont réduites
+/// pour garder un fichier raisonnable.
+pub const GIF_MAX_WIDTH: u32 = 480;
+
+/// Calcule les dimensions cibles d'un GIF à partir d'une image source, bornées
+/// par [`GIF_MAX_WIDTH`] en conservant le rapport (dimensions paires).
+pub fn gif_target_dims(src_w: u32, src_h: u32) -> (u32, u32) {
+    if src_w == 0 || src_h == 0 {
+        return (0, 0);
+    }
+    if src_w <= GIF_MAX_WIDTH {
+        return (src_w, src_h);
+    }
+    let w = GIF_MAX_WIDTH;
+    let h = (src_h * w / src_w).max(2) & !1; // pair
+    (w, h.max(2))
+}
+
+/// Encode une suite d'images RGBA (toutes en `w × h`) en GIF animé bouclé, dans
+/// le dossier Images. `delay_cs` est le délai par image en centisecondes.
+/// Réalisé hors du thread UI (encodage coûteux).
+pub fn save_gif(frames: Vec<Vec<u8>>, w: u32, h: u32, delay_cs: u16) -> Result<PathBuf> {
+    anyhow::ensure!(!frames.is_empty(), "aucune image à encoder");
+    let dir = dirs::picture_dir()
+        .or_else(dirs::home_dir)
+        .context("aucun dossier de destination pour le GIF")?;
+    std::fs::create_dir_all(&dir).ok();
+    let path = dir.join(format!("oxiplay-{}.gif", crate::utils::timestamp_slug()));
+
+    let file =
+        std::fs::File::create(&path).with_context(|| format!("création de {}", path.display()))?;
+    let mut encoder = gif::Encoder::new(std::io::BufWriter::new(file), w as u16, h as u16, &[])
+        .context("initialisation de l'encodeur GIF")?;
+    encoder
+        .set_repeat(gif::Repeat::Infinite)
+        .context("configuration de la boucle GIF")?;
+    for mut rgba in frames {
+        // `from_rgba_speed` quantifie une palette par image (vitesse 1..30,
+        // plus haut = plus rapide / moins fin) ; 10 est un bon compromis.
+        let mut frame = gif::Frame::from_rgba_speed(w as u16, h as u16, &mut rgba, 10);
+        frame.delay = delay_cs;
+        encoder
+            .write_frame(&frame)
+            .context("écriture d'une image GIF")?;
+    }
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn downscale_halves_dimensions() {
+        // 4×2 RGBA → 2×1 : échantillonne sans déborder.
+        let src = vec![255u8; 4 * 2 * 4];
+        let out = downscale_rgba(&src, 4, 2, 2, 1);
+        assert_eq!(out.len(), 2 * 4);
+        assert!(out.iter().all(|&b| b == 255));
+    }
+
+    #[test]
+    fn gif_dims_bounded_and_even() {
+        assert_eq!(gif_target_dims(320, 240), (320, 240)); // sous le plafond
+        let (w, h) = gif_target_dims(1920, 1080);
+        assert_eq!(w, GIF_MAX_WIDTH);
+        assert_eq!(h % 2, 0);
+        assert_eq!(h, 270);
+    }
+
+    #[test]
+    fn gif_encodes_frames() {
+        let (w, h) = (4u32, 4u32);
+        let frames = vec![
+            vec![0u8; (w * h * 4) as usize],
+            vec![255u8; (w * h * 4) as usize],
+        ];
+        let path = save_gif(frames, w, h, 10).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(&bytes[..6], b"GIF89a"); // en-tête GIF
+        std::fs::remove_file(&path).ok();
+    }
 
     #[test]
     fn screenshot_writes_valid_png() {
