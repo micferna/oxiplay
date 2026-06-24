@@ -364,6 +364,7 @@ export component MainWindow inherits Window {
     in property <[string]> eq-frequencies: [];
     in-out property <[float]> eq-gains: [];
     in-out property <bool> eq-visible: false;
+    in-out property <bool> normalize: false;
     in property <string> media-info-text: "";
     in-out property <bool> info-visible: false;
     in property <string> stats-text: "";
@@ -394,6 +395,7 @@ export component MainWindow inherits Window {
     callback open-recent(int);
     callback volume-changed(float);
     callback toggle-mute();
+    callback toggle-normalize();
     callback speed-selected(int);
     callback toggle-fullscreen();
     callback take-screenshot();
@@ -467,6 +469,7 @@ export component MainWindow inherits Window {
             if (event.text == " ") { root.play-pause(); return accept; }
             if (event.text == "f" || event.text == "F") { root.toggle-fullscreen(); return accept; }
             if (event.text == "m" || event.text == "M") { root.toggle-mute(); return accept; }
+            if (event.text == "n" || event.text == "N") { root.toggle-normalize(); return accept; }
             if (event.text == "s" || event.text == "S") { root.take-screenshot(); return accept; }
             if (event.text == "p" || event.text == "P") { root.toggle-mini(); return accept; }
             if (event.text == "r" || event.text == "R") { root.cycle-repeat(); return accept; }
@@ -708,7 +711,7 @@ export component MainWindow inherits Window {
                         x: parent.width - self.width - 16px;
                         y: 16px;
                         width: 372px;
-                        height: 276px;
+                        height: 314px;
                         background: root.dark ? #11151aF2 : #fafbfcF2;
                         border-radius: 10px;
                         border-width: 1px;
@@ -734,6 +737,23 @@ export component MainWindow inherits Window {
                                 height: 26px;
                                 model: [@tr("Préréglage…"), @tr("Plat"), @tr("Rock"), @tr("Pop"), @tr("Jazz"), @tr("Classique"), @tr("Graves+"), @tr("Voix")];
                                 selected => { root.eq-preset-selected(self.current-index); }
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: @tr("Normalisation du volume");
+                                    color: root.fg-dim;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                ToolButton {
+                                    text: root.normalize ? "🔊 ON" : "OFF";
+                                    tip: @tr("Égalise la loudness (N)");
+                                    dark: root.dark;
+                                    active: root.normalize;
+                                    clicked => { root.toggle-normalize(); }
+                                }
                             }
                             HorizontalLayout {
                                 vertical-stretch: 1;
@@ -1310,6 +1330,7 @@ export component MainWindow inherits Window {
                 HelpRow { dark: root.dark; keys: "← / →"; action: @tr("Reculer / avancer 10 s"); }
                 HelpRow { dark: root.dark; keys: "↑ / ↓"; action: @tr("Volume + / −"); }
                 HelpRow { dark: root.dark; keys: "M"; action: @tr("Sourdine"); }
+                HelpRow { dark: root.dark; keys: "N"; action: @tr("Normalisation du volume"); }
                 HelpRow { dark: root.dark; keys: "F / Échap"; action: @tr("Plein écran (Échap pour sortir)"); }
                 HelpRow { dark: root.dark; keys: "P"; action: @tr("Mini-lecteur"); }
                 HelpRow { dark: root.dark; keys: "R"; action: @tr("Répétition"); }

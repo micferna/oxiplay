@@ -46,7 +46,7 @@ pub fn atempo_factors(speed: f64) -> Vec<f64> {
 /// jeu de gains d'égaliseur donnés. Les bandes à gain nul et les `atempo`
 /// inutiles (vitesse 1.0) sont omis ; `aformat` est toujours présent pour la
 /// conversion vers la sortie stéréo `f32` du périphérique.
-pub fn build_spec(speed: f64, eq_gains: &[f32; 10], device_rate: u32) -> String {
+pub fn build_spec(speed: f64, eq_gains: &[f32; 10], normalize: bool, device_rate: u32) -> String {
     let mut parts: Vec<String> = Vec::new();
     for (band, &gain) in eq_gains.iter().enumerate() {
         if gain.abs() > 0.05 {
@@ -58,6 +58,12 @@ pub fn build_spec(speed: f64, eq_gains: &[f32; 10], device_rate: u32) -> String 
     }
     for factor in atempo_factors(speed) {
         parts.push(format!("atempo={factor:.6}"));
+    }
+    // Normalisation de loudness en temps réel (façon « volume automatique ») :
+    // `dynaudnorm` lisse les variations de niveau sans à-coups, contrairement à
+    // un `loudnorm` deux passes inadapté à la lecture en flux.
+    if normalize {
+        parts.push("dynaudnorm=framelen=400:gausssize=15".to_string());
     }
     parts.push(format!(
         "aformat=sample_fmts=flt:channel_layouts=stereo:sample_rates={device_rate}"
@@ -188,18 +194,28 @@ mod tests {
         let mut gains = [0.0f32; 10];
         gains[0] = 6.0; // 31 Hz
         gains[9] = -3.0; // 16 kHz
-        let spec = build_spec(1.0, &gains, 48_000);
+        let spec = build_spec(1.0, &gains, false, 48_000);
         assert!(spec.contains("equalizer=f=31"));
         assert!(spec.contains("equalizer=f=16000"));
         assert_eq!(spec.matches("equalizer=").count(), 2);
         assert!(!spec.contains("atempo")); // vitesse 1.0
+        assert!(!spec.contains("dynaudnorm")); // normalisation désactivée
         assert!(spec.contains("sample_rates=48000"));
     }
 
     #[test]
     fn spec_includes_atempo_for_speed() {
-        let spec = build_spec(2.0, &[0.0; 10], 44_100);
+        let spec = build_spec(2.0, &[0.0; 10], false, 44_100);
         assert!(spec.contains("atempo=2"));
         assert_eq!(spec.matches("equalizer=").count(), 0);
+    }
+
+    #[test]
+    fn spec_includes_dynaudnorm_when_normalizing() {
+        // dynaudnorm s'insère avant la conversion finale aformat.
+        let spec = build_spec(1.0, &[0.0; 10], true, 48_000);
+        let dn = spec.find("dynaudnorm").expect("dynaudnorm présent");
+        let af = spec.find("aformat").expect("aformat présent");
+        assert!(dn < af, "normalisation avant aformat : {spec}");
     }
 }
