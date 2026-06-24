@@ -376,6 +376,9 @@ export component MainWindow inherits Window {
     in-out property <float> img-brightness: 0.0;
     in-out property <float> img-contrast: 1.0;
     in-out property <float> img-saturation: 1.0;
+    in-out property <float> img-gamma: 1.0;
+    in-out property <float> img-sharpen: 0.0;
+    in-out property <float> img-denoise: 0.0;
     in-out property <bool> image-visible: false;
 
     // ---- Callbacks vers Rust --------------------------------------------
@@ -396,6 +399,7 @@ export component MainWindow inherits Window {
     callback take-screenshot();
     callback cycle-rotation();
     callback image-adjust(float, float, float); // luminosité, contraste, saturation
+    callback video-enhance(float, float, float); // gamma, netteté, débruitage
     callback playlist-activate(int);
     callback playlist-remove(int);
     callback playlist-shift(int, int);
@@ -854,12 +858,13 @@ export component MainWindow inherits Window {
                         }
                     }
 
-                    // Panneau de réglages d'image (luminosité/contraste/saturation).
+                    // Panneau de réglages d'image (luminosité/contraste/
+                    // saturation/gamma + netteté/débruitage).
                     if root.image-visible: Rectangle {
                         x: 16px;
                         y: 16px;
                         width: 320px;
-                        height: 232px;
+                        height: 408px;
                         background: root.dark ? #11151aF2 : #fafbfcF2;
                         border-radius: 10px;
                         border-width: 1px;
@@ -884,7 +889,11 @@ export component MainWindow inherits Window {
                                         root.img-brightness = 0;
                                         root.img-contrast = 1;
                                         root.img-saturation = 1;
+                                        root.img-gamma = 1;
+                                        root.img-sharpen = 0;
+                                        root.img-denoise = 0;
                                         root.image-adjust(0, 1, 1);
+                                        root.video-enhance(1, 0, 0);
                                     }
                                 }
                                 ToolButton { text: "✕"; dark: root.dark; clicked => { root.image-visible = false; } }
@@ -909,6 +918,27 @@ export component MainWindow inherits Window {
                                 maximum: 3.0;
                                 value <=> root.img-saturation;
                                 changed(v) => { root.image-adjust(root.img-brightness, root.img-contrast, v); }
+                            }
+                            Text { text: @tr("Gamma"); color: root.fg-dim; font-size: 11px; }
+                            Slider {
+                                minimum: 0.4;
+                                maximum: 2.5;
+                                value <=> root.img-gamma;
+                                changed(v) => { root.video-enhance(v, root.img-sharpen, root.img-denoise); }
+                            }
+                            Text { text: @tr("Netteté"); color: root.fg-dim; font-size: 11px; }
+                            Slider {
+                                minimum: 0.0;
+                                maximum: 2.0;
+                                value <=> root.img-sharpen;
+                                changed(v) => { root.video-enhance(root.img-gamma, v, root.img-denoise); }
+                            }
+                            Text { text: @tr("Réduction de bruit"); color: root.fg-dim; font-size: 11px; }
+                            Slider {
+                                minimum: 0.0;
+                                maximum: 1.5;
+                                value <=> root.img-denoise;
+                                changed(v) => { root.video-enhance(root.img-gamma, root.img-sharpen, v); }
                             }
                         }
                     }

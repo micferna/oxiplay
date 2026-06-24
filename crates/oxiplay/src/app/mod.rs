@@ -561,6 +561,23 @@ impl App {
         }
     }
 
+    /// Applique les améliorations d'image : correction gamma (0.1..4, 1 = neutre)
+    /// via `eq`, netteté (`unsharp`, 0..3) et débruitage (`hqdn3d`, 0..2). Effet
+    /// immédiat, même en pause.
+    pub fn set_video_enhance(&mut self, gamma: f32, sharpen: f32, denoise: f32) {
+        let Some(engine) = &self.engine else { return };
+        let s = &engine.shared;
+        s.gamma_milli
+            .store((gamma.clamp(0.1, 4.0) * 1000.0) as i32, Ordering::Relaxed);
+        s.sharpen_milli
+            .store((sharpen.clamp(0.0, 3.0) * 1000.0) as i32, Ordering::Relaxed);
+        s.denoise_milli
+            .store((denoise.clamp(0.0, 2.0) * 1000.0) as i32, Ordering::Relaxed);
+        if engine.is_paused() {
+            engine.seek(engine.position_us());
+        }
+    }
+
     /// Affiche/masque le HUD de statistiques (FPS, images sautées, A/V).
     pub fn toggle_stats(&mut self) {
         if let Some(ui) = self.ui.upgrade() {

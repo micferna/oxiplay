@@ -190,6 +190,8 @@ fn wire_callbacks(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(on_cycle_rotation, |a| a.cycle_rotation());
     on!(on_image_adjust, |a, b: f32, c: f32, s: f32| a
         .set_image_adjust(b, c, s));
+    on!(on_video_enhance, |a, g: f32, sh: f32, dn: f32| a
+        .set_video_enhance(g, sh, dn));
     on!(on_playlist_activate, |a, idx: i32| a
         .playlist_activate(idx.max(0) as usize));
     on!(on_playlist_remove, |a, idx: i32| a
