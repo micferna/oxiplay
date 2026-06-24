@@ -184,6 +184,9 @@ fn drain_frames(
             shared.brightness_milli.load(Ordering::Relaxed),
             shared.contrast_milli.load(Ordering::Relaxed),
             shared.saturation_milli.load(Ordering::Relaxed),
+            shared.gamma_milli.load(Ordering::Relaxed),
+            shared.sharpen_milli.load(Ordering::Relaxed),
+            shared.denoise_milli.load(Ordering::Relaxed),
             deint_enabled,
             frame_is_interlaced(frame_ref),
         );
@@ -247,11 +250,15 @@ fn frame_is_interlaced(frame: &ffmpeg::frame::Video) -> bool {
 /// d'image) pour la trame courante, ou `None` si aucun filtre n'est requis.
 /// `yadif=deint=1` laisse passer le progressif, on peut donc l'inclure dès
 /// qu'on filtre déjà pour la rotation.
+#[allow(clippy::too_many_arguments)]
 fn filter_spec(
     rotation: u8,
     brightness_milli: i32,
     contrast_milli: i32,
     saturation_milli: i32,
+    gamma_milli: i32,
+    sharpen_milli: i32,
+    denoise_milli: i32,
     deint_enabled: bool,
     interlaced: bool,
 ) -> Option<String> {
@@ -259,19 +266,33 @@ fn filter_spec(
     if deint_enabled && (interlaced || rotation != 0) {
         parts.push("yadif=mode=0:parity=-1:deint=1".to_string());
     }
+    // Débruitage spatio-temporel : avant l'`eq` et la rotation, sur l'image
+    // d'origine. `denoise_milli/1000` pilote la force spatiale luma (0..~10).
+    if denoise_milli > 0 {
+        parts.push(format!("hqdn3d={:.2}", denoise_milli as f64 / 100.0));
+    }
     match rotation {
         1 => parts.push("transpose=1".to_string()), // 90° horaire
         2 => parts.push("transpose=1,transpose=1".to_string()), // 180°
         3 => parts.push("transpose=2".to_string()), // 270° (90° anti-horaire)
         _ => {}
     }
-    if brightness_milli != 0 || contrast_milli != 1000 || saturation_milli != 1000 {
+    if brightness_milli != 0
+        || contrast_milli != 1000
+        || saturation_milli != 1000
+        || gamma_milli != 1000
+    {
         parts.push(format!(
-            "eq=brightness={:.3}:contrast={:.3}:saturation={:.3}",
+            "eq=brightness={:.3}:contrast={:.3}:saturation={:.3}:gamma={:.3}",
             brightness_milli as f64 / 1000.0,
             contrast_milli as f64 / 1000.0,
             saturation_milli as f64 / 1000.0,
+            gamma_milli as f64 / 1000.0,
         ));
+    }
+    // Accentuation (netteté) en dernier : `unsharp` luma amount = sharpen/1000.
+    if sharpen_milli > 0 {
+        parts.push(format!("unsharp=5:5:{:.3}", sharpen_milli as f64 / 1000.0));
     }
     (!parts.is_empty()).then(|| parts.join(","))
 }
@@ -628,4 +649,47 @@ fn extract_yuv(decoded: &ffmpeg::frame::Video) -> Option<crate::video::YuvFrame>
         full_range,
         transfer,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filter_spec;
+
+    /// Valeurs neutres (aucun réglage) : pas de filtre si progressif non tourné.
+    fn neutral() -> [i32; 6] {
+        // brightness, contrast, saturation, gamma, sharpen, denoise
+        [0, 1000, 1000, 1000, 0, 0]
+    }
+
+    #[test]
+    fn neutral_progressive_needs_no_filter() {
+        let [b, c, s, g, sh, dn] = neutral();
+        assert_eq!(filter_spec(0, b, c, s, g, sh, dn, true, false), None);
+    }
+
+    #[test]
+    fn gamma_folds_into_eq() {
+        let [b, c, s, _, sh, dn] = neutral();
+        let spec = filter_spec(0, b, c, s, 1200, sh, dn, false, false).unwrap();
+        assert!(spec.contains("eq="), "réglage gamma via eq : {spec}");
+        assert!(spec.contains("gamma=1.200"), "valeur gamma : {spec}");
+    }
+
+    #[test]
+    fn sharpen_and_denoise_order_around_eq() {
+        // Débruitage en amont (sur l'image d'origine), accentuation en aval.
+        let spec = filter_spec(0, 0, 1000, 1000, 1000, 800, 600, false, false).unwrap();
+        let dn = spec.find("hqdn3d").expect("hqdn3d présent");
+        let un = spec.find("unsharp").expect("unsharp présent");
+        assert!(dn < un, "débruitage avant accentuation : {spec}");
+    }
+
+    #[test]
+    fn rotation_inserts_transpose() {
+        let [b, c, s, g, sh, dn] = neutral();
+        assert_eq!(
+            filter_spec(1, b, c, s, g, sh, dn, false, false).as_deref(),
+            Some("transpose=1")
+        );
+    }
 }

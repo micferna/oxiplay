@@ -117,6 +117,11 @@ pub struct SharedState {
     pub brightness_milli: AtomicI32,
     pub contrast_milli: AtomicI32,
     pub saturation_milli: AtomicI32,
+    /// Correction gamma en millièmes (1000 = neutre), appliquée par le filtre
+    /// `eq`. Netteté (`unsharp`) et débruitage (`hqdn3d`) en millièmes, 0 = off.
+    pub gamma_milli: AtomicI32,
+    pub sharpen_milli: AtomicI32,
+    pub denoise_milli: AtomicI32,
     /// Statistiques de présentation (HUD de diagnostic) : images réellement
     /// affichées, images sautées (retard), et dernier décalage A/V (µs).
     pub frames_presented: AtomicU64,
@@ -158,6 +163,9 @@ impl Default for SharedState {
             brightness_milli: AtomicI32::new(0),
             contrast_milli: AtomicI32::new(1000),
             saturation_milli: AtomicI32::new(1000),
+            gamma_milli: AtomicI32::new(1000),
+            sharpen_milli: AtomicI32::new(0),
+            denoise_milli: AtomicI32::new(0),
             frames_presented: AtomicU64::new(0),
             frames_dropped: AtomicU64::new(0),
             last_av_delta_us: AtomicI64::new(0),
