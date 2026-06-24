@@ -82,6 +82,8 @@ pub struct App {
     gif_capturing: bool,
     gif_frames: Vec<Vec<u8>>,
     gif_dims: (u32, u32),
+    /// Enregistrement du flux en cours (copie vers un fichier), ou `None`.
+    recorder: Option<crate::recording::Recorder>,
     /// Décalage de synchronisation audio/vidéo (secondes).
     audio_delay_secs: f64,
     /// Minuteur de veille : échéance après laquelle la lecture est mise en
@@ -190,6 +192,7 @@ impl App {
             gif_capturing: false,
             gif_frames: Vec::new(),
             gif_dims: (0, 0),
+            recorder: None,
             audio_delay_secs: settings.audio_delay_secs as f64,
             sleep_deadline: None,
             sleep_minutes: 0,
@@ -739,6 +742,53 @@ impl App {
         match crate::video::save_screenshot(&frame) {
             Ok(path) => self.set_status(&format!("Capture : {}", path.display())),
             Err(e) => self.set_status(&format!("Capture impossible : {e}")),
+        }
+    }
+
+    /// Démarre ou arrête l'enregistrement du flux/média courant vers un fichier
+    /// (copie sans réencodage). Idéal pour capturer le direct (IPTV).
+    pub fn toggle_recording(&mut self) {
+        // Arrêt : libère l'enregistreur (Drop finalise le fichier proprement).
+        if let Some(rec) = self.recorder.take() {
+            let path = rec.path.clone();
+            let size = rec.bytes_written();
+            drop(rec);
+            self.set_recording_ui(false, "");
+            self.set_status(&format!(
+                "Enregistrement arrêté : {} ({})",
+                path.display(),
+                format_size(size)
+            ));
+            return;
+        }
+        // Démarrage : nécessite une source ouverte qui ne soit pas un disque.
+        let Some(source) = self.current_source.clone() else {
+            self.set_status("Ouvrez d'abord un média à enregistrer");
+            return;
+        };
+        if source.starts_with("bluray:") {
+            self.set_status("Enregistrement indisponible pour ce média");
+            return;
+        }
+        let dir = dirs::video_dir()
+            .or_else(dirs::home_dir)
+            .unwrap_or_else(|| PathBuf::from("."));
+        std::fs::create_dir_all(&dir).ok();
+        let ext = crate::recording::recording_extension(&source);
+        let path = dir.join(format!(
+            "oxiplay-rec-{}.{ext}",
+            crate::utils::timestamp_slug()
+        ));
+        self.recorder = Some(crate::recording::Recorder::start(source, path.clone()));
+        self.set_recording_ui(true, "⏺ REC");
+        self.set_status(&format!("Enregistrement vers {}", path.display()));
+    }
+
+    /// Reflète l'état d'enregistrement dans l'UI (badge + booléen).
+    fn set_recording_ui(&self, on: bool, label: &str) {
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_recording(on);
+            ui.set_recording_label(label.into());
         }
     }
 
@@ -1424,6 +1474,25 @@ impl App {
             self.capture_gif_frame();
         }
 
+        // Enregistrement : met à jour le badge (taille) ou détecte un arrêt
+        // spontané (fin du flux / erreur réseau).
+        if let Some(rec) = &self.recorder {
+            if rec.finished() {
+                let (path, size) = (rec.path.clone(), rec.bytes_written());
+                self.recorder = None;
+                self.set_recording_ui(false, "");
+                self.set_status(&format!(
+                    "Enregistrement terminé : {} ({})",
+                    path.display(),
+                    format_size(size)
+                ));
+            } else {
+                ui.set_recording_label(
+                    format!("⏺ REC · {}", format_size(rec.bytes_written())).into(),
+                );
+            }
+        }
+
         // Mémorise la géométrie courante (uniquement en mode fenêtré normal :
         // ni mini-lecteur, ni plein écran, dont la taille n'est pas à retenir).
         // Capturée ici plutôt qu'après `run()`, où la taille redevient périmée.
@@ -1772,6 +1841,19 @@ fn find_sidecar_subtitle(source: &str, prefer_lang: &str) -> Option<std::path::P
         }
     }
     lang_match.or(exact).or(any_lang)
+}
+
+/// Formate une taille en octets de façon lisible (Ko / Mo / Go).
+fn format_size(bytes: u64) -> String {
+    const KO: f64 = 1024.0;
+    let b = bytes as f64;
+    if b >= KO * KO * KO {
+        format!("{:.2} Go", b / (KO * KO * KO))
+    } else if b >= KO * KO {
+        format!("{:.1} Mo", b / (KO * KO))
+    } else {
+        format!("{:.0} Ko", (b / KO).max(0.0))
+    }
 }
 
 /// Dossier de cache disque des logos de chaînes.

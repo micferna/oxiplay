@@ -17,6 +17,7 @@ pub mod media_controls;
 pub mod opensubtitles;
 pub mod player;
 pub mod playlist;
+pub mod recording;
 /// Rendu vidéo GPU zéro-copie + HDR (expérimental, feature `gpu`).
 #[cfg(feature = "gpu")]
 pub mod render;

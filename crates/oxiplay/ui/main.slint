@@ -370,6 +370,8 @@ export component MainWindow inherits Window {
     in-out property <bool> eq-visible: false;
     in-out property <bool> normalize: false;
     in property <bool> gif-capturing: false;
+    in property <bool> recording: false;
+    in property <string> recording-label: "";
     in property <string> media-info-text: "";
     in-out property <bool> info-visible: false;
     in property <string> stats-text: "";
@@ -444,6 +446,7 @@ export component MainWindow inherits Window {
     callback toggle-bookmark();
     callback jump-bookmark(int);
     callback toggle-gif-capture();
+    callback toggle-recording();
     callback step-frame(bool);            // true = avant, false = arrière
 
     // Langue d'interface effective (« fr » ou « en »), affichée sur le bouton.
@@ -564,6 +567,13 @@ export component MainWindow inherits Window {
                         dark: root.dark;
                         active: root.gif-capturing;
                         clicked => { root.toggle-gif-capture(); }
+                    }
+                    ToolButton {
+                        text: root.recording ? "⏹" : "⏺";
+                        tip: @tr("Enregistrer le flux vers un fichier");
+                        dark: root.dark;
+                        active: root.recording;
+                        clicked => { root.toggle-recording(); }
                     }
                     ToolButton {
                         text: "🎛";
@@ -752,6 +762,24 @@ export component MainWindow inherits Window {
                             text: root.aspect-mode == 1 ? "🖼 " + @tr("Remplir") : "🖼 " + @tr("Étiré");
                             color: #ffffff;
                             font-size: 14px;
+                        }
+                    }
+
+                    // Badge d'enregistrement en cours (rouge, en haut à droite).
+                    if root.recording: Rectangle {
+                        x: parent.width - self.width - 16px;
+                        y: 16px;
+                        width: rec-label.preferred-width + 16px;
+                        height: rec-label.preferred-height + 8px;
+                        background: #c0202099;
+                        border-radius: 6px;
+                        rec-label := Text {
+                            x: 8px;
+                            y: 4px;
+                            text: root.recording-label;
+                            color: #ffffff;
+                            font-size: 14px;
+                            font-weight: 700;
                         }
                     }
 
