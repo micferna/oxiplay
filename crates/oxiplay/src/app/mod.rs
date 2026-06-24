@@ -70,6 +70,10 @@ pub struct App {
     repeat_mode: RepeatMode,
     /// Décalage de synchronisation audio/vidéo (secondes).
     audio_delay_secs: f64,
+    /// Minuteur de veille : échéance après laquelle la lecture est mise en
+    /// pause (`None` = désactivé), et durée courante en minutes (pour le cycle).
+    sleep_deadline: Option<std::time::Instant>,
+    sleep_minutes: u32,
     /// Inhibiteur de mise en veille / d'économiseur d'écran (actif en lecture).
     inhibitor: Inhibitor,
     /// Contrôles média du bureau (touches multimédia, MPRIS/SMTC/Now Playing).
@@ -153,6 +157,8 @@ impl App {
             pre_mini_size: None,
             repeat_mode: RepeatMode::Off,
             audio_delay_secs: settings.audio_delay_secs as f64,
+            sleep_deadline: None,
+            sleep_minutes: 0,
             inhibitor: Inhibitor::new(),
             media_keys: MediaKeys::new(),
             last_stats_at: std::time::Instant::now(),
@@ -611,6 +617,39 @@ impl App {
         });
     }
 
+    /// Cycle le minuteur de veille : off → 15 → 30 → 60 → 90 min → off. À
+    /// expiration (vérifiée dans `tick`), la lecture est mise en pause.
+    pub fn cycle_sleep_timer(&mut self) {
+        self.sleep_minutes = match self.sleep_minutes {
+            0 => 15,
+            15 => 30,
+            30 => 60,
+            60 => 90,
+            _ => 0,
+        };
+        self.sleep_deadline = (self.sleep_minutes > 0).then(|| {
+            std::time::Instant::now()
+                + std::time::Duration::from_secs(self.sleep_minutes as u64 * 60)
+        });
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_sleep_label(self.sleep_label().into());
+        }
+        if self.sleep_minutes == 0 {
+            self.set_status("Minuteur de veille désactivé");
+        } else {
+            self.set_status(&format!("Minuteur de veille : {} min", self.sleep_minutes));
+        }
+    }
+
+    /// Libellé court du minuteur (« Off » ou « 30 min »).
+    fn sleep_label(&self) -> String {
+        if self.sleep_minutes == 0 {
+            "Off".to_string()
+        } else {
+            format!("{} min", self.sleep_minutes)
+        }
+    }
+
     // ---- Playlist ----------------------------------------------------------
 
     /// Ajoute des sources (fichiers ou URL) ; lance la lecture si rien
@@ -1031,6 +1070,20 @@ impl App {
             let w = ui.get_reported_width().round() as u32;
             let h = ui.get_reported_height().round() as u32;
             self.remember_window_geometry(w, h);
+        }
+
+        // Minuteur de veille : met la lecture en pause à expiration.
+        if self
+            .sleep_deadline
+            .is_some_and(|d| std::time::Instant::now() >= d)
+        {
+            self.sleep_deadline = None;
+            self.sleep_minutes = 0;
+            if let Some(engine) = &self.engine {
+                engine.set_paused(true);
+            }
+            ui.set_sleep_label("Off".into());
+            self.set_status("Minuteur de veille écoulé — lecture en pause");
         }
 
         // Commandes des contrôles média du bureau (touches multimédia, MPRIS).
