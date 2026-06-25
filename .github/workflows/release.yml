@@ -16,7 +16,7 @@ jobs:
     name: Artefacts Linux (.deb, tar.gz, AppImage)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Dépendances système
         run: |
           sudo apt-get update
@@ -66,7 +66,7 @@ jobs:
     name: Artefacts Windows (.zip + .msi)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Setup FFmpeg identique à celui de la CI (ci.yml), seul éprouvé.
       - name: FFmpeg 8.1 (build partagé BtbN)
         shell: pwsh
