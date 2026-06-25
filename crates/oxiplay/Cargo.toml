@@ -57,7 +57,7 @@ slint-build = "1.8"
 [dev-dependencies]
 # Benchmarks des chemins chauds (parsing/recherche de sous-titres,
 # compositing image). Voir benches/hot_paths.rs.
-criterion = "0.5"
+criterion = "0.8"
 # Validation statique du shader WGSL de rendu GPU (tests/shader_validation.rs).
 naga = { version = "28", features = ["wgsl-in"] }
 
