@@ -59,7 +59,7 @@ slint-build = "1.8"
 # compositing image). Voir benches/hot_paths.rs.
 criterion = "0.5"
 # Validation statique du shader WGSL de rendu GPU (tests/shader_validation.rs).
-naga = { version = "28", features = ["wgsl-in"] }
+naga = { version = "29", features = ["wgsl-in"] }
 
 [[bench]]
 name = "hot_paths"
